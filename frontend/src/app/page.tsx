@@ -22,14 +22,18 @@ interface BoxRegion {
   width: number;
   height: number;
   text: string;
+  fontSize?: number; // 可选的独立字体大小
+  font?: string; // 可选的独立字体
+  expanded?: boolean; // 是否展开参数面板
 }
 
 export default function Home() {
   const [fontSize, setFontSize] = useState(45);
   const [lineSpacing, setLineSpacing] = useState(50);
   const [wordSpacing, setWordSpacing] = useState(3);
-  const [width, setWidth] = useState(1200);
-  const [height, setHeight] = useState(1694);
+  // A4 纸标准尺寸 (150 DPI: 1240×1754)
+  const [width, setWidth] = useState(1240);
+  const [height, setHeight] = useState(1754);
   const [inkColor, setInkColor] = useState("#282830");
   const [quality, setQuality] = useState(10);
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
@@ -39,6 +43,32 @@ export default function Home() {
   const [lineSpacingSigma, setLineSpacingSigma] = useState(1.5); // 行距波动
   const [wordSpacingSigma, setWordSpacingSigma] = useState(1.0); // 字间距波动
   const [perturbThetaSigma, setPerturbThetaSigma] = useState(0.015); // 角度波动/倾斜度
+
+  // 手写风格预设
+  const [handStyle, setHandStyle] = useState<"formal" | "natural" | "casual">("natural");
+  const applyHandStyle = (style: "formal" | "natural" | "casual") => {
+    setHandStyle(style);
+    switch (style) {
+      case "formal": // 工整正式
+        setFontSizeSigma(0.5);
+        setLineSpacingSigma(0.8);
+        setWordSpacingSigma(0.3);
+        setPerturbThetaSigma(0.005);
+        break;
+      case "natural": // 自然手写（默认）
+        setFontSizeSigma(1.2);
+        setLineSpacingSigma(1.5);
+        setWordSpacingSigma(1.0);
+        setPerturbThetaSigma(0.015);
+        break;
+      case "casual": // 潦草随性
+        setFontSizeSigma(2.0);
+        setLineSpacingSigma(2.5);
+        setWordSpacingSigma(1.8);
+        setPerturbThetaSigma(0.03);
+        break;
+    }
+  };
   
   // 字体选择
   const [fonts, setFonts] = useState<{name: string, file: string, path: string}[]>([]);
@@ -71,10 +101,10 @@ export default function Home() {
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionStart, setSelectionStart] = useState<{x: number, y: number} | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<{x: number, y: number} | null>(null);
-  
-  // 框选模式状态
-  const [selectionMode, setSelectionMode] = useState(false);
-  
+
+  // 鼠标按键状态：null=无, 0=左键, 2=右键
+  const [mouseButton, setMouseButton] = useState<number | null>(null);
+
   const containerRef = useRef<HTMLDivElement>(null);
 
   // 加载字体列表
@@ -164,11 +194,11 @@ export default function Home() {
     }
   };
 
-  // 鼠标选择区域
+  // 鼠标选择区域 - 左键直接框选
   const handleMouseDown = (e: React.MouseEvent) => {
-    // 只有在框选模式下才进行框选
-    if (!selectionMode) return;
-    if (previewUrl) return;
+    // 只有左键可以框选
+    if (e.button !== 0) return;
+    // 预览图模式下左键框选，PDF预览模式下也可以框选
     if (!pdfImageUrl) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -180,7 +210,7 @@ export default function Home() {
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isSelecting || !selectionMode) return;
+    if (!isSelecting) return;
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
     const x = e.clientX - rect.left;
@@ -206,7 +236,9 @@ export default function Home() {
         y: y / containerHeight * 100,
         width: w / containerWidth * 100,
         height: h / containerHeight * 100,
-        text: ""
+        text: "",
+        fontSize: fontSize, // 默认使用全局字体大小
+        expanded: false // 默认折叠参数面板
       };
       setPageRegions({
         ...pageRegions,
@@ -288,14 +320,15 @@ export default function Home() {
             width: r.width / 100 * width,
             height: r.height / 100 * height,
             text: r.text,
-            fontSize,
+            fontSize: r.fontSize ?? fontSize, // 使用区域独立字体大小或全局字体大小
             lineSpacing,
             wordSpacing,
             inkColor,
             fontSizeSigma,
             lineSpacingSigma,
             wordSpacingSigma,
-            perturbThetaSigma
+            perturbThetaSigma,
+            font: r.font ?? selectedFont // 使用区域独立字体或全局字体
           })),
           width,
           height,
@@ -306,7 +339,7 @@ export default function Home() {
           lineSpacingSigma,
           wordSpacingSigma,
           perturbThetaSigma,
-          // 字体参数
+          // 字体参数 - 全局默认字体
           font: selectedFont
         })
       });
@@ -361,14 +394,15 @@ export default function Home() {
             width: r.width / 100 * width,
             height: r.height / 100 * height,
             text: r.text,
-            fontSize,
+            fontSize: r.fontSize ?? fontSize, // 使用区域独立字体大小或全局字体大小
             lineSpacing,
             wordSpacing,
             inkColor,
             fontSizeSigma,
             lineSpacingSigma,
             wordSpacingSigma,
-            perturbThetaSigma
+            perturbThetaSigma,
+            font: r.font ?? selectedFont // 使用区域独立字体或全局字体
           })),
           width,
           height,
@@ -379,7 +413,7 @@ export default function Home() {
           lineSpacingSigma,
           wordSpacingSigma,
           perturbThetaSigma,
-          // 字体参数
+          // 字体参数 - 全局默认字体
           font: selectedFont
         })
       });
@@ -406,10 +440,10 @@ export default function Home() {
   // 选区样式
   const getSelectionStyle = () => {
     if (!isSelecting || !selectionStart || !selectionEnd || !containerRef.current) return {};
-    
+
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
-    
+
     return {
       left: `${Math.min(selectionStart.x, selectionEnd.x) / containerWidth * 100}%`,
       top: `${Math.min(selectionStart.y, selectionEnd.y) / containerHeight * 100}%`,
@@ -473,28 +507,19 @@ export default function Home() {
               </CardContent>
             </Card>
 
-            {/* 框选模式 - 只要有PDF就显示 */}
+            {/* 框选提示 - 只要有PDF就显示 */}
             {pdfImageUrl && (
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">框选区域</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant={selectionMode ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setSelectionMode(!selectionMode)}
-                      className="flex-1"
-                    >
-                      {selectionMode ? "退出框选" : "开始框选"}
-                    </Button>
-                    {selectionMode && (
-                      <span className="text-xs text-slate-500">拖动框选</span>
-                    )}
-                  </div>
+                  <p className="text-xs text-slate-600 mb-2">
+                    <span className="font-medium">左键拖动</span>：框选区域<br/>
+                    {previewUrl && <><span className="font-medium">右键拖动</span>：移动预览</>}
+                  </p>
                   {regions.length > 0 && (
-                    <p className="text-[10px] text-slate-400 mt-2">已框选 {regions.length} 个区域</p>
+                    <p className="text-[10px] text-slate-400">已框选 {regions.length} 个区域</p>
                   )}
                 </CardContent>
               </Card>
@@ -506,64 +531,110 @@ export default function Home() {
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">填写内容 ({regions.length}个区域)</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3">
+                <CardContent className="space-y-2">
                   {regions.map((region, index) => (
                     <div key={region.id} className="border rounded p-2">
+                      {/* 头部：区域编号 + 展开/删除按钮 */}
                       <div className="flex justify-between items-center mb-2">
-                        <Label className="text-xs">区域 {index + 1}</Label>
-                        <button onClick={() => deleteRegion(region.id)} className="text-red-500">
+                        <button
+                          onClick={() => updateRegionSize(region.id, { expanded: !region.expanded })}
+                          className="flex items-center gap-1 text-xs font-medium hover:text-slate-600"
+                        >
+                          <span>区域 {index + 1}</span>
+                          <svg
+                            className={`w-3 h-3 transition-transform ${region.expanded ? 'rotate-180' : ''}`}
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </button>
+                        <button onClick={() => deleteRegion(region.id)} className="text-red-500 hover:text-red-600">
                           <X className="w-4 h-4" />
                         </button>
                       </div>
+
+                      {/* 文字输入 */}
                       <Textarea
                         value={region.text}
                         onChange={(e) => updateRegionText(region.id, e.target.value)}
                         placeholder="在此区域填写的文字..."
-                        className="min-h-[60px] text-sm mb-2"
+                        className="min-h-[50px] text-sm"
                       />
-                      {/* 位置和尺寸输入 */}
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <Label className="text-[10px] text-slate-500">X(%)</Label>
-                          <Input
-                            type="number"
-                            value={Math.round(region.x * 10) / 10}
-                            onChange={(e) => updateRegionSize(region.id, { x: Math.max(0, Math.min(100, Number(e.target.value))) })}
-                            className="h-6 text-xs"
-                            step="0.1"
-                          />
+
+                      {/* 展开的参数面板 */}
+                      {region.expanded && (
+                        <div className="mt-3 pt-3 border-t space-y-3">
+                          {/* 字体选择 */}
+                          <div>
+                            <Label className="text-[10px] text-slate-500 mb-1 block">字体</Label>
+                            <select
+                              value={region.font ?? selectedFont}
+                              onChange={(e) => updateRegionSize(region.id, { font: e.target.value })}
+                              className="w-full h-7 text-xs rounded-md border border-slate-200 bg-white px-2 py-1"
+                            >
+                              {fonts.map((font) => (
+                                <option key={font.file} value={font.file}>
+                                  {font.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* 字体大小 */}
+                          <div>
+                            <Label className="text-[10px] text-slate-500 mb-1 block">字体大小 (px)</Label>
+                            <Input
+                              type="number"
+                              value={region.fontSize ?? fontSize}
+                              onChange={(e) => updateRegionSize(region.id, { fontSize: Math.max(16, Math.min(60, Number(e.target.value))) })}
+                              className="h-7 text-xs"
+                              min={16}
+                              max={60}
+                            />
+                          </div>
+
+                          {/* 位置和尺寸输入 */}
+                          <div>
+                            <Label className="text-[10px] text-slate-500 mb-1 block">位置和尺寸 (%)</Label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input
+                                type="number"
+                                value={Math.round(region.x * 10) / 10}
+                                onChange={(e) => updateRegionSize(region.id, { x: Math.max(0, Math.min(100, Number(e.target.value))) })}
+                                className="h-7 text-xs"
+                                placeholder="X"
+                                step="0.1"
+                              />
+                              <Input
+                                type="number"
+                                value={Math.round(region.y * 10) / 10}
+                                onChange={(e) => updateRegionSize(region.id, { y: Math.max(0, Math.min(100, Number(e.target.value))) })}
+                                className="h-7 text-xs"
+                                placeholder="Y"
+                                step="0.1"
+                              />
+                              <Input
+                                type="number"
+                                value={Math.round(region.width * 10) / 10}
+                                onChange={(e) => updateRegionSize(region.id, { width: Math.max(1, Math.min(100, Number(e.target.value))) })}
+                                className="h-7 text-xs"
+                                placeholder="宽"
+                                step="0.1"
+                              />
+                              <Input
+                                type="number"
+                                value={Math.round(region.height * 10) / 10}
+                                onChange={(e) => updateRegionSize(region.id, { height: Math.max(1, Math.min(100, Number(e.target.value))) })}
+                                className="h-7 text-xs"
+                                placeholder="高"
+                                step="0.1"
+                              />
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <Label className="text-[10px] text-slate-500">Y(%)</Label>
-                          <Input
-                            type="number"
-                            value={Math.round(region.y * 10) / 10}
-                            onChange={(e) => updateRegionSize(region.id, { y: Math.max(0, Math.min(100, Number(e.target.value))) })}
-                            className="h-6 text-xs"
-                            step="0.1"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-[10px] text-slate-500">宽(%)</Label>
-                          <Input
-                            type="number"
-                            value={Math.round(region.width * 10) / 10}
-                            onChange={(e) => updateRegionSize(region.id, { width: Math.max(1, Math.min(100, Number(e.target.value))) })}
-                            className="h-6 text-xs"
-                            step="0.1"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-[10px] text-slate-500">高(%)</Label>
-                          <Input
-                            type="number"
-                            value={Math.round(region.height * 10) / 10}
-                            onChange={(e) => updateRegionSize(region.id, { height: Math.max(1, Math.min(100, Number(e.target.value))) })}
-                            className="h-6 text-xs"
-                            step="0.1"
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
                   ))}
                 </CardContent>
@@ -595,7 +666,7 @@ export default function Home() {
         <div className="flex-1 bg-slate-200 p-4 overflow-auto flex flex-col items-center relative">
           <div 
             ref={containerRef}
-            className={`relative bg-white shadow-lg select-none ${selectionMode ? 'cursor-crosshair' : 'cursor-default'}`}
+            className={`relative bg-white shadow-lg select-none ${isSelecting ? 'cursor-crosshair' : (previewUrl ? 'cursor-default' : 'cursor-crosshair')}`}
             style={{ 
               width: '600px', 
               userSelect: 'none',
@@ -608,9 +679,9 @@ export default function Home() {
           >
             {/* 预览图 */}
             {previewUrl ? (
-              <div 
-                className="w-full h-full relative overflow-hidden" 
-                style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+              <div
+                className="w-full h-full relative overflow-hidden"
+                style={{ cursor: mouseButton === 2 ? (isDragging ? 'grabbing' : 'grab') : (isSelecting ? 'crosshair' : 'crosshair') }}
                 onWheel={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
@@ -618,15 +689,19 @@ export default function Home() {
                   setZoom(prev => Math.min(Math.max(prev + delta, 25), 400));
                 }}
                 onMouseDown={(e) => {
-                  e.stopPropagation();
-                  if (e.button === 0) {
+                  setMouseButton(e.button);
+                  if (e.button === 2) { // 右键拖动
+                    e.preventDefault();
+                    e.stopPropagation();
                     setIsDragging(true);
                     setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
                   }
+                  // 左键不阻止冒泡，让父容器处理框选
                 }}
+                onContextMenu={(e) => e.preventDefault()}
                 onMouseMove={(e) => {
-                  e.stopPropagation();
                   if (isDragging && dragStart) {
+                    e.stopPropagation(); // 只有拖动时才阻止冒泡
                     setPan({
                       x: e.clientX - dragStart.x,
                       y: e.clientY - dragStart.y
@@ -634,14 +709,20 @@ export default function Home() {
                   }
                 }}
                 onMouseUp={(e) => {
-                  e.stopPropagation();
-                  setIsDragging(false);
-                  setDragStart(null);
+                  setMouseButton(null);
+                  if (isDragging) {
+                    e.stopPropagation(); // 只有拖动时才阻止冒泡
+                    setIsDragging(false);
+                    setDragStart(null);
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  e.stopPropagation();
-                  setIsDragging(false);
-                  setDragStart(null);
+                  setMouseButton(null);
+                  if (isDragging) {
+                    e.stopPropagation();
+                    setIsDragging(false);
+                    setDragStart(null);
+                  }
                 }}
               >
                 {/* 缩放控制条 - 放在右上角避免和左上角框选按钮冲突 */}
@@ -707,17 +788,25 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+
+                {/* 选区预览 - 预览图模式下（放在可缩放容器外，避免受transform影响） */}
+                {isSelecting && selectionStart && selectionEnd && (
+                  <div
+                    className="absolute border-2 border-dashed border-blue-500 bg-blue-100 bg-opacity-30 pointer-events-none z-10"
+                    style={getSelectionStyle()}
+                  />
+                )}
               </div>
             ) : pdfImageUrl ? (
               /* PDF转换后的图片预览 */
               <div className="w-full h-full relative">
-                <img 
+                <img
                   src={pdfImageUrl}
-                  alt="PDF预览" 
+                  alt="PDF预览"
                   className="w-full h-auto"
                   draggable={false}
                 />
-                
+
                 {/* 区域框 */}
                 {regions.map((region, index) => (
                   <div
@@ -817,6 +906,52 @@ export default function Home() {
                 </div>
                 <p className="text-[10px] text-slate-400 mt-2">
                   提示：将 .ttf/.otf 字体文件放入 fonts 文件夹即可使用
+                </p>
+              </CardContent>
+            </Card>
+
+            {/* 手写风格 */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">手写风格</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    onClick={() => applyHandStyle("formal")}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
+                      handStyle === "formal"
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    工整正式
+                  </button>
+                  <button
+                    onClick={() => applyHandStyle("natural")}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
+                      handStyle === "natural"
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    自然手写
+                  </button>
+                  <button
+                    onClick={() => applyHandStyle("casual")}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
+                      handStyle === "casual"
+                        ? "bg-slate-800 text-white border-slate-800"
+                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                    }`}
+                  >
+                    潦草随性
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">
+                  {handStyle === "formal" && "适合申请书、报告等正式文档"}
+                  {handStyle === "natural" && "适合日记、笔记等日常书写（推荐）"}
+                  {handStyle === "casual" && "适合草稿、速记等非正式场景"}
                 </p>
               </CardContent>
             </Card>

@@ -107,7 +107,7 @@ class Config:
     BACKGROUND_PATH = "../../assets/templates/a4.png"  # 纸张背景图片
     BACKGROUND_IMAGE = None  # 背景图片(Base64或路径)
     OUTPUT_PATH = "output_handwrite.png"
-    OUTPUT_SIZE = (1200, 1600)
+    OUTPUT_SIZE = (1240, 1754)  # A4 纸标准尺寸 (150 DPI)
     BASE_FONT_SIZE = 36
     MARGIN_LEFT = 50
     MARGIN_TOP = 60
@@ -659,12 +659,15 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     font_size = region.get('fontSize', Config.BASE_FONT_SIZE)
     line_spacing = region.get('lineSpacing', Config.LINE_SPACING)
     word_spacing = region.get('wordSpacing', Config.WORD_SPACING)
-    
+
     # 获取手写风格参数（从region或全局Config）
     font_size_sigma = region.get('fontSizeSigma', Config.FONT_SIZE_SIGMA)
     line_spacing_sigma = region.get('lineSpacingSigma', Config.LINE_SPACING_SIGMA)
     word_spacing_sigma = region.get('wordSpacingSigma', Config.WORD_SPACING_SIGMA)
     perturb_theta_sigma = region.get('perturbThetaSigma', Config.PERTURB_THETA_SIGMA)
+
+    # 获取区域独立字体路径
+    region_font = region.get('font', None)
     
     # 解析墨水颜色
     ink_color_hex = region.get('inkColor', '#282830')
@@ -684,12 +687,27 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     render_width = region_width * scale
     render_height = region_height * scale
     render_font_size = font_size * scale
-    render_line_spacing = line_spacing * scale
+    render_line_spacing = min(line_spacing * scale, int(render_height * 0.6))  # 确保行距不超过区域高度的60%
     render_word_spacing = word_spacing * scale
     
-    # 重新创建字体
-    font = ImageFont.truetype(font.path, render_font_size)
-    
+    # 极端情况检测：如果区域太小，强制减小字体
+    # Handright 要求: 2 * min_margin + font_size <= height 且 2 * min_margin + line_spacing <= height
+    # 最小边距为 2 * scale，所以最小需要的高度为 2 * (2 * scale) + max(font_size, line_spacing)
+    min_required_height = 4 * scale + max(render_font_size, render_line_spacing)
+    if render_height < min_required_height:
+        # 区域太小，按比例缩小字体
+        scale_factor = (render_height - 4 * scale) / max(render_font_size, render_line_spacing)
+        render_font_size = int(render_font_size * scale_factor * 0.9)  # 留一点余量
+        render_line_spacing = render_font_size
+        print(f"    [警告] 区域太小，强制调整字体: {render_font_size}")
+
+    # 重新创建字体 - 优先使用区域独立字体
+    if region_font and os.path.exists(region_font):
+        font = ImageFont.truetype(region_font, render_font_size)
+        print(f"    [调试] 使用区域独立字体: {os.path.basename(region_font)}")
+    else:
+        font = ImageFont.truetype(font.path, render_font_size)
+
     # 动态计算边距，确保区域满足 Handright 的要求
     # Handright 要求:
     # 1. width >= left_margin + font_size + right_margin  =>  width >= 2 * margin + font_size
@@ -714,11 +732,41 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     available_height_for_line = render_height - 2 * margin
     render_line_spacing = min(render_line_spacing, max(render_font_size, int(available_height_for_line * 0.6)))
     
-    # 最终验证
+    # 最终验证和调整 - 确保满足 Handright 的硬性约束
+    # 高度约束: 2 * margin + line_spacing <= render_height
+    # 宽度约束: 2 * margin + font_size <= render_width
+    
+    # 首先确保满足高度约束
+    required_height = 2 * margin + render_line_spacing
+    if required_height > render_height:
+        # 需要调整：先减小 margin，再减小 line_spacing
+        available_for_margins = render_height - render_line_spacing
+        if available_for_margins >= 4 * scale:  # 确保至少有最小边距空间
+            margin = max(2 * scale, int(available_for_margins / 2) - scale)
+        else:
+            # 空间不足，大幅减小 line_spacing
+            margin = 2 * scale
+            render_line_spacing = max(render_font_size, render_height - 4 * scale)
+        
+        # 重新检查，如果还不满足，强制调整
+        while 2 * margin + render_line_spacing > render_height and render_line_spacing > render_font_size:
+            render_line_spacing -= scale
+    
+    # 然后确保满足宽度约束
     if 2 * margin + render_font_size > render_width:
-        # 如果宽度还是不够，减小字体大小（这种情况不应该发生，但做保险处理）
-        render_font_size = max(render_font_size // 2, render_width - 2 * margin - 10)
-        font = ImageFont.truetype(font.path, render_font_size)
+        margin = max(2 * scale, int((render_width - render_font_size) / 2))
+    
+    # 最终调整：确保 line_spacing >= font_size (Handright 要求)
+    if render_line_spacing < render_font_size:
+        render_line_spacing = render_font_size
+        # 重新调整 margin 以适应新的 line_spacing
+        if 2 * margin + render_line_spacing > render_height:
+            margin = max(2 * scale, int((render_height - render_line_spacing) / 2))
+    
+    print(f"    [调试] 区域尺寸: {render_width}x{render_height}, margin: {margin}, font: {render_font_size}, line_spacing: {render_line_spacing}")
+    print(f"    [调试] 宽度检查: 2*{margin} + {render_font_size} = {2*margin + render_font_size} <= {render_width}? {2*margin + render_font_size <= render_width}")
+    print(f"    [调试] 高度检查: 2*{margin} + {render_line_spacing} = {2*margin + render_line_spacing} <= {render_height}? {2*margin + render_line_spacing <= render_height}")
+    print(f"    [调试] 行距>=字体: {render_line_spacing} >= {render_font_size}? {render_line_spacing >= render_font_size}")
     
     # 创建Handright模板
     template = Template(
