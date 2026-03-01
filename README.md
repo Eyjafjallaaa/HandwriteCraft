@@ -27,7 +27,7 @@
 
 <div align="center">
 
-<img src="docs/screenshot-main.jpg" alt="迹墨界面预览" width="100%">
+<img src="docs/presentation.jpg" alt="迹墨界面预览" width="100%">
 
 *迹墨主界面 - 上传 PDF、框选区域、生成手写效果*
 
@@ -63,8 +63,8 @@
 #### 1. 克隆项目
 
 ```bash
-git clone https://github.com/yourusername/handwrite.git
-cd handwrite
+git clone https://github.com/Eyjafjallaaa/HandwriteCraft.git
+cd HandwriteCraft
 ```
 
 #### 2. 安装 Python 依赖
@@ -94,7 +94,7 @@ npm run dev
 ## 📂 项目结构
 
 ```
-handwrite/
+HandwriteCraft/
 ├── 📁 backend/                 # Python 后端
 │   ├── src/
 │   │   ├── handwrite_generator.py   # 手写生成核心
