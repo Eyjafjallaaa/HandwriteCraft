@@ -690,15 +690,35 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     # 重新创建字体
     font = ImageFont.truetype(font.path, render_font_size)
     
-    # 动态计算边距，确保区域高度足够
-    # Handright 要求: height >= top_margin + line_spacing + bottom_margin
-    min_required_height = render_line_spacing + 20 * scale  # 最小需要行距 + 上下边距
-    if render_height < min_required_height:
-        # 如果区域太小，调整行距和边距
-        render_line_spacing = max(render_font_size, render_height // 2)
-        margin = max(2 * scale, (render_height - render_line_spacing) // 3)
-    else:
-        margin = 10 * scale
+    # 动态计算边距，确保区域满足 Handright 的要求
+    # Handright 要求:
+    # 1. width >= left_margin + font_size + right_margin  =>  width >= 2 * margin + font_size
+    # 2. height >= top_margin + line_spacing + bottom_margin  =>  height >= 2 * margin + line_spacing
+    
+    # 计算满足宽度条件的最小 margin: 2 * margin + font_size <= width  =>  margin <= (width - font_size) / 2
+    max_margin_for_width = (render_width - render_font_size) / 2
+    # 计算满足高度条件的最小 margin: 2 * margin + line_spacing <= height  =>  margin <= (height - line_spacing) / 2
+    max_margin_for_height = (render_height - render_line_spacing) / 2
+    
+    # 取两者较小值，确保同时满足宽度和高度条件
+    max_allowed_margin = min(max_margin_for_width, max_margin_for_height)
+    
+    # 使用期望的 margin (10 * scale)，但不能超过限制
+    desired_margin = 10 * scale
+    margin = int(min(desired_margin, max(2 * scale, max_allowed_margin - scale)))
+    
+    # 确保 margin 至少为 2 * scale
+    margin = max(2 * scale, margin)
+    
+    # 重新调整 line_spacing 以适应剩余空间
+    available_height_for_line = render_height - 2 * margin
+    render_line_spacing = min(render_line_spacing, max(render_font_size, int(available_height_for_line * 0.6)))
+    
+    # 最终验证
+    if 2 * margin + render_font_size > render_width:
+        # 如果宽度还是不够，减小字体大小（这种情况不应该发生，但做保险处理）
+        render_font_size = max(render_font_size // 2, render_width - 2 * margin - 10)
+        font = ImageFont.truetype(font.path, render_font_size)
     
     # 创建Handright模板
     template = Template(
