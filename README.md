@@ -27,7 +27,7 @@
 
 <div align="center">
 
-<img src="docs/presentation.jpg" alt="迹墨界面预览" width="100%">
+<img src="docs/screenshot_main.jpg" alt="迹墨界面预览" width="100%">
 
 *迹墨主界面 - 上传 PDF、框选区域、生成手写效果*
 

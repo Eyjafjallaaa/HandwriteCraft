@@ -230,12 +230,17 @@ export default function Home() {
       const containerWidth = containerRef.current?.clientWidth || 1;
       const containerHeight = containerRef.current?.clientHeight || 1;
       
+      const xPercent = x / containerWidth * 100;
+      const yPercent = y / containerHeight * 100;
+      const wPercent = w / containerWidth * 100;
+      const hPercent = h / containerHeight * 100;
+      
       const newRegion: BoxRegion = {
         id: Date.now(),
-        x: x / containerWidth * 100,
-        y: y / containerHeight * 100,
-        width: w / containerWidth * 100,
-        height: h / containerHeight * 100,
+        x: xPercent,
+        y: 100 - yPercent - hPercent, // 转换为向上为正的坐标系（Y=0在底部）
+        width: wPercent,
+        height: hPercent,
         text: "",
         fontSize: fontSize, // 默认使用全局字体大小
         expanded: false // 默认折叠参数面板
@@ -437,18 +442,23 @@ export default function Home() {
     }
   };
 
-  // 选区样式
+  // 选区样式 - 使用屏幕坐标直接显示，符合鼠标拖动直觉
   const getSelectionStyle = () => {
     if (!isSelecting || !selectionStart || !selectionEnd || !containerRef.current) return {};
 
     const containerWidth = containerRef.current.clientWidth;
     const containerHeight = containerRef.current.clientHeight;
 
+    const x = Math.min(selectionStart.x, selectionEnd.x) / containerWidth * 100;
+    const y = Math.min(selectionStart.y, selectionEnd.y) / containerHeight * 100;
+    const w = Math.abs(selectionEnd.x - selectionStart.x) / containerWidth * 100;
+    const h = Math.abs(selectionEnd.y - selectionStart.y) / containerHeight * 100;
+
     return {
-      left: `${Math.min(selectionStart.x, selectionEnd.x) / containerWidth * 100}%`,
-      top: `${Math.min(selectionStart.y, selectionEnd.y) / containerHeight * 100}%`,
-      width: `${Math.abs(selectionEnd.x - selectionStart.x) / containerWidth * 100}%`,
-      height: `${Math.abs(selectionEnd.y - selectionStart.y) / containerHeight * 100}%`,
+      left: `${x}%`,
+      top: `${y}%`,  // 直接使用屏幕坐标，Y=0在顶部
+      width: `${w}%`,
+      height: `${h}%`,
     };
   };
 
@@ -599,38 +609,53 @@ export default function Home() {
                           <div>
                             <Label className="text-[10px] text-slate-500 mb-1 block">位置和尺寸 (%)</Label>
                             <div className="grid grid-cols-2 gap-2">
-                              <Input
-                                type="number"
-                                value={Math.round(region.x * 10) / 10}
-                                onChange={(e) => updateRegionSize(region.id, { x: Math.max(0, Math.min(100, Number(e.target.value))) })}
-                                className="h-7 text-xs"
-                                placeholder="X"
-                                step="0.1"
-                              />
-                              <Input
-                                type="number"
-                                value={Math.round(region.y * 10) / 10}
-                                onChange={(e) => updateRegionSize(region.id, { y: Math.max(0, Math.min(100, Number(e.target.value))) })}
-                                className="h-7 text-xs"
-                                placeholder="Y"
-                                step="0.1"
-                              />
-                              <Input
-                                type="number"
-                                value={Math.round(region.width * 10) / 10}
-                                onChange={(e) => updateRegionSize(region.id, { width: Math.max(1, Math.min(100, Number(e.target.value))) })}
-                                className="h-7 text-xs"
-                                placeholder="宽"
-                                step="0.1"
-                              />
-                              <Input
-                                type="number"
-                                value={Math.round(region.height * 10) / 10}
-                                onChange={(e) => updateRegionSize(region.id, { height: Math.max(1, Math.min(100, Number(e.target.value))) })}
-                                className="h-7 text-xs"
-                                placeholder="高"
-                                step="0.1"
-                              />
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">X</span>
+                                <Input
+                                  type="number"
+                                  value={Math.round(region.x * 10) / 10}
+                                  onChange={(e) => updateRegionSize(region.id, { x: Math.max(0, Math.min(100, Number(e.target.value))) })}
+                                  className="h-7 text-xs pl-5"
+                                  placeholder="横坐标"
+                                  step="0.1"
+                                />
+                              </div>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">Y</span>
+                                <Input
+                                  type="number"
+                                  value={Math.round((100 - region.y) * 10) / 10}
+                                  onChange={(e) => {
+                                    const visualY = Math.max(0, Math.min(100, Number(e.target.value)));
+                                    updateRegionSize(region.id, { y: 100 - visualY });
+                                  }}
+                                  className="h-7 text-xs pl-5"
+                                  placeholder="纵坐标（向上为正）"
+                                  step="0.1"
+                                />
+                              </div>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">W</span>
+                                <Input
+                                  type="number"
+                                  value={Math.round(region.width * 10) / 10}
+                                  onChange={(e) => updateRegionSize(region.id, { width: Math.max(1, Math.min(100, Number(e.target.value))) })}
+                                  className="h-7 text-xs pl-5"
+                                  placeholder="宽度"
+                                  step="0.1"
+                                />
+                              </div>
+                              <div className="relative">
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">H</span>
+                                <Input
+                                  type="number"
+                                  value={Math.round(region.height * 10) / 10}
+                                  onChange={(e) => updateRegionSize(region.id, { height: Math.max(1, Math.min(100, Number(e.target.value))) })}
+                                  className="h-7 text-xs pl-5"
+                                  placeholder="高度"
+                                  step="0.1"
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -777,7 +802,7 @@ export default function Home() {
                       className="absolute border-2 border-blue-500 hover:bg-blue-50 hover:bg-opacity-20 flex items-center justify-center group"
                       style={{
                         left: `${region.x}%`,
-                        top: `${region.y}%`,
+                        top: `${100 - region.y - region.height}%`,
                         width: `${region.width}%`,
                         height: `${region.height}%`,
                       }}
@@ -814,7 +839,7 @@ export default function Home() {
                     className="absolute border-2 border-blue-500 bg-blue-50 bg-opacity-30 flex items-center justify-center"
                     style={{
                       left: `${region.x}%`,
-                      top: `${region.y}%`,
+                      top: `${100 - region.y - region.height}%`,
                       width: `${region.width}%`,
                       height: `${region.height}%`,
                     }}

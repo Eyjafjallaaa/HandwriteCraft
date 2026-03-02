@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-    const fontsDir = "/Users/vincent/Downloads/学年鉴定/handwrite/frontend/public/fonts";
+    const fontsDir = "/Users/vincent/Downloads/学年鉴定/handwrite/assets/fonts";
     
     // 读取字体文件夹
     const files = await readdir(fontsDir);

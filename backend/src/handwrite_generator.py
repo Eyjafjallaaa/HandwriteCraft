@@ -829,9 +829,14 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     # 合成到背景
     result = background.copy()
     
+    # 转换Y坐标：前端使用"向上为正"的坐标系（y=0在底部）
+    # 需要转换为"向下为正"的坐标系（y=0在顶部）
+    total_height = result.shape[0]
+    y_from_top = total_height - y - h
+    
     # 确保区域在边界内
     x = max(0, min(x, result.shape[1] - 1))
-    y = max(0, min(y, result.shape[0] - 1))
+    y = max(0, min(y_from_top, result.shape[0] - 1))
     end_x = min(x + w, result.shape[1])
     end_y = min(y + h, result.shape[0])
     

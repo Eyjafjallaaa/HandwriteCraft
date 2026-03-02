@@ -46,18 +46,29 @@ export async function POST(request: NextRequest) {
     // Python脚本路径
     const scriptPath = "/Users/vincent/Downloads/学年鉴定/handwrite/backend/src/handwrite_generator.py";
     
-    // 字体路径 - 从 public/fonts 读取
-    const fontsDir = "/Users/vincent/Downloads/学年鉴定/handwrite/frontend/public/fonts";
+    // 字体路径 - 从 assets/fonts 读取
+    const fontsDir = "/Users/vincent/Downloads/学年鉴定/handwrite/assets/fonts";
     const fs = await import("fs");
     
+    // 处理全局字体路径
     let fontPath = join(fontsDir, font);
     if (!fs.existsSync(fontPath)) {
       // 如果指定字体不存在，回退到默认字体
       fontPath = join(fontsDir, "PingFangShaoHuaTi-2.ttf");
     }
     
+    // 处理每个区域的字体路径
+    const processedRegions = regions.map((r: any) => {
+      const regionFont = r.font || font;
+      const regionFontPath = join(fontsDir, regionFont);
+      return {
+        ...r,
+        font: fs.existsSync(regionFontPath) ? regionFontPath : fontPath
+      };
+    });
+    
     // 准备区域数据
-    const regionsJson = JSON.stringify(regions);
+    const regionsJson = JSON.stringify(processedRegions);
     await writeFile(regionsFile, regionsJson, "utf-8");
     
     // 将背景图片数据写入临时文件（避免命令行参数过长）
