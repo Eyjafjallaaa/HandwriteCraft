@@ -78,6 +78,10 @@ def parse_args():
                         help='字间距波动 (默认: 1.0)')
     parser.add_argument('--perturb-theta-sigma', type=float, default=0.015,
                         help='角度波动 (默认: 0.015)')
+    parser.add_argument('--elastic-alpha', type=float, default=80,
+                        help='弹性变形幅度 (默认: 80, 0为禁用)')
+    parser.add_argument('--elastic-sigma', type=float, default=12,
+                        help='弹性变形平滑度 (默认: 12)')
     
     # 区域渲染参数 (JSON格式)
     parser.add_argument('--regions', type=str, default=None,
@@ -123,11 +127,16 @@ class Config:
     # 区域渲染配置
     REGIONS = []  # 区域列表，每个区域包含x, y, width, height, text, fontSize等
     
-    # 手写扰动参数
-    FONT_SIZE_SIGMA = 1.2
-    WORD_SPACING_SIGMA = 1.0
-    LINE_SPACING_SIGMA = 1.5
-    PERTURB_THETA_SIGMA = 0.015
+    # 手写扰动参数 - 与"自然手写"风格一致
+    FONT_SIZE_SIGMA = 2.5      # 字体大小波动
+    WORD_SPACING_SIGMA = 1.2   # 字间距波动
+    LINE_SPACING_SIGMA = 2.0   # 行距波动
+    PERTURB_THETA_SIGMA = 0.025 # 旋转角度波动（约±1.4度）
+    
+    # 弹性变形参数 - 让每个字产生结构差异（拉伸、压缩）
+    ELASTIC_DISTORTION = True  # 是否启用弹性变形
+    ELASTIC_ALPHA = 80         # 变形幅度（像素），越大变形越明显
+    ELASTIC_SIGMA = 12         # 变形平滑度，越小越细碎
     
     # 图形增强参数
     SUPER_SAMPLE_SCALE = 3
@@ -142,9 +151,9 @@ class Config:
     
     # 清晰度和手写参数
     SUPER_SAMPLE_SCALE = 2  # 2倍超采样保证清晰度
-    WORD_SPACING_SIGMA = 1.0
-    LINE_SPACING_SIGMA = 1.5
-    PERTURB_THETA_SIGMA = 0.015
+    WORD_SPACING_SIGMA = 1.2   # 字间距波动
+    LINE_SPACING_SIGMA = 2.0   # 行距波动
+    PERTURB_THETA_SIGMA = 0.025 # 旋转角度波动
     AUTO_INDENT = True
     
     @classmethod
@@ -197,6 +206,11 @@ class Config:
         cls.LINE_SPACING_SIGMA = getattr(args, 'line_spacing_sigma', 1.5)
         cls.PERTURB_THETA_SIGMA = getattr(args, 'perturb_theta_sigma', 0.015)
         cls.AUTO_INDENT = getattr(args, 'auto_indent', True)
+        
+        # 弹性变形参数
+        cls.ELASTIC_ALPHA = getattr(args, 'elastic_alpha', 80)
+        cls.ELASTIC_SIGMA = getattr(args, 'elastic_sigma', 12)
+        cls.ELASTIC_DISTORTION = cls.ELASTIC_ALPHA > 0
         
         # 背景图片
         cls.BACKGROUND_IMAGE = getattr(args, 'background_image', None)
@@ -357,8 +371,8 @@ def render_handwrite_text(text: str, font) -> Image.Image:
         right_margin=render_margin_right,
         bottom_margin=render_margin_bottom,
         # 位置扰动
-        perturb_x_sigma=0.5 * scale,
-        perturb_y_sigma=0.5 * scale,
+        perturb_x_sigma=1.0 * scale,  # 适中的位置偏移
+        perturb_y_sigma=1.0 * scale,
         # 旋转角度扰动
         perturb_theta_sigma=Config.PERTURB_THETA_SIGMA,
     )
@@ -375,6 +389,48 @@ def render_handwrite_text(text: str, font) -> Image.Image:
     
     print(f"[OK] Handright渲染完成，尺寸: {text_image.size}")
     return text_image
+
+
+def apply_elastic_distortion(image: np.ndarray, alpha: float = 80, sigma: float = 12) -> np.ndarray:
+    """
+    应用弹性变形 - 让每个字产生独特的拉伸/压缩效果（优化版）
+    
+    【原理】
+    1. 生成随机位移场（dx, dy）
+    2. 用高斯模糊平滑位移场，产生连贯的变形
+    3. 将位移场叠加到原图像坐标上，重新采样
+    
+    【优化】使用向量化操作，避免Python循环
+    """
+    if alpha <= 0:
+        return image
+    
+    print(f"[*] 应用弹性变形 (alpha={alpha}, sigma={sigma})")
+    
+    height, width = image.shape[:2]
+    
+    # 生成随机位移场
+    dx = np.random.uniform(-1, 1, (height, width)).astype(np.float32)
+    dy = np.random.uniform(-1, 1, (height, width)).astype(np.float32)
+    
+    # 高斯模糊平滑位移场 - 使用更快的实现
+    if sigma > 0:
+        ksize = int(sigma * 6) | 1  # 确保奇数
+        dx = cv2.GaussianBlur(dx, (ksize, ksize), sigma)
+        dy = cv2.GaussianBlur(dy, (ksize, ksize), sigma)
+    
+    dx *= alpha
+    dy *= alpha
+    
+    # 向量化生成映射坐标（替代双重循环）
+    map_x = np.arange(width, dtype=np.float32).reshape(1, -1) + dx
+    map_y = np.arange(height, dtype=np.float32).reshape(-1, 1) + dy
+    
+    # 重映射 - 使用线性插值（比CUBIC快2-3倍，质量损失不明显）
+    distorted = cv2.remap(image, map_x, map_y, cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    
+    print(f"[OK] 弹性变形完成")
+    return distorted
 
 
 def apply_ink_bleed(image: np.ndarray, kernel_size: int) -> np.ndarray:
@@ -463,6 +519,13 @@ def process_text_image(text_image_pil: Image.Image) -> np.ndarray:
         sigma = 0.5 + (scale / 20)
         alpha = cv2.GaussianBlur(alpha, (blur_kernel, blur_kernel), sigma)
         print(f"[*] 应用抗锯齿模糊 (核大小: {blur_kernel}, sigma: {sigma:.2f})")
+    
+    # 弹性变形：在高分辨率下进行，让每个字产生结构差异
+    if Config.ELASTIC_DISTORTION and Config.ELASTIC_ALPHA > 0:
+        # 根据超采样倍数调整变形幅度（高分辨率下用更大的alpha）
+        adjusted_alpha = Config.ELASTIC_ALPHA * scale
+        adjusted_sigma = Config.ELASTIC_SIGMA * scale
+        alpha = apply_elastic_distortion(alpha, adjusted_alpha, adjusted_sigma)
     
     # 下采样到目标尺寸 - 使用PIL的LANCZOS高质量缩放
     target_width, target_height = Config.OUTPUT_SIZE
@@ -807,8 +870,8 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
         top_margin=int(margin),
         right_margin=int(margin),
         bottom_margin=int(margin),
-        perturb_x_sigma=0.5 * scale,
-        perturb_y_sigma=0.5 * scale,
+        perturb_x_sigma=1.0 * scale,  # 适中的位置偏移
+        perturb_y_sigma=1.0 * scale,
         perturb_theta_sigma=perturb_theta_sigma,
     )
     
@@ -840,6 +903,12 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
             blur_kernel = 7
         sigma = 0.5 + (scale / 20)
         alpha = cv2.GaussianBlur(alpha, (blur_kernel, blur_kernel), sigma)
+    
+    # 弹性变形：在高分辨率下进行
+    if Config.ELASTIC_DISTORTION and Config.ELASTIC_ALPHA > 0:
+        adjusted_alpha = Config.ELASTIC_ALPHA * scale
+        adjusted_sigma = Config.ELASTIC_SIGMA * scale
+        alpha = apply_elastic_distortion(alpha, adjusted_alpha, adjusted_sigma)
     
     # 下采样到目标尺寸 - 使用PIL高质量缩放
     alpha_pil = Image.fromarray(alpha)
