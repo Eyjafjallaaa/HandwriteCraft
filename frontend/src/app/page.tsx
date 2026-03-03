@@ -322,17 +322,24 @@ export default function Home() {
     });
   };
 
-  // 计算预估生成时间（秒）
+  // 计算预估生成时间（秒）- 基于真实测试数据
   const calculateEstimatedTime = () => {
     const totalChars = regions.reduce((sum, r) => sum + (r.text?.length || 0), 0);
-    // 时间公式：0.01 * 字符数 + 基础图片处理时间
-    // 基础时间：字符处理（每个字符约0.01秒）+ 图片合成（约3-8秒，根据质量调整）
-    const baseTime = 0.01 * totalChars;
-    let imageTime = 3 + (quality / 10) * 5; // quality=10时约8秒，quality=2时约4秒
+
     if (fastMode) {
-      imageTime *= 0.7; // 极速模式减少30%时间
+      // 极速模式实测数据：每字约0.001秒(1ms)，固定开销约0.5秒
+      // 质量设置对极速模式影响很小
+      const perCharTime = 0.001; // 1ms/字
+      const baseOverhead = 0.5; // 固定开销0.5秒
+      const qualityFactor = 1 + (quality / 20); // 质量影响因子：1.0 ~ 1.5
+      return Math.ceil((totalChars * perCharTime + baseOverhead) * qualityFactor + 1); // +1秒缓冲
+    } else {
+      // 标准模式：每字约0.008秒(8ms)，固定开销约2秒
+      const perCharTime = 0.008; // 8ms/字
+      const baseOverhead = 2.0; // 固定开销2秒
+      const qualityFactor = 1 + (quality / 10); // 质量影响因子：1.0 ~ 2.0
+      return Math.ceil((totalChars * perCharTime + baseOverhead) * qualityFactor + 2); // +2秒缓冲
     }
-    return Math.ceil(baseTime + imageTime + 2); // +2秒缓冲
   };
 
   const handleGenerate = async () => {
