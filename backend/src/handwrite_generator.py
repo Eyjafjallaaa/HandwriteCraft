@@ -286,6 +286,23 @@ def load_background() -> np.ndarray:
     return create_paper_texture(width, height)
 
 
+def format_text_indentation(text: str) -> str:
+    """为文本的每一段添加首行缩进（2个全角空格）"""
+    if not text:
+        return text
+        
+    lines = text.strip().split('\n')
+    formatted_lines = []
+    for line in lines:
+        stripped = line.lstrip(' \t\u3000\xa0')
+        if stripped:
+            formatted_lines.append('　　' + stripped)
+        else:
+            formatted_lines.append(line)
+            
+    return '\n'.join(formatted_lines)
+
+
 def render_handwrite_text(text: str, font) -> Image.Image:
     """
     使用Handright渲染手写文本
@@ -344,7 +361,11 @@ def render_handwrite_text(text: str, font) -> Image.Image:
     
     # 执行渲染
     text_image = None
-    for img in handwrite(text, template):
+    
+    # 添加首行缩进
+    formatted_text = format_text_indentation(text)
+    
+    for img in handwrite(formatted_text, template):
         text_image = img
         break
     
@@ -789,7 +810,11 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     
     # 渲染文字
     text_image = None
-    for img in handwrite(text.strip(), template):
+    
+    # 添加首行缩进
+    formatted_text = format_text_indentation(text)
+    
+    for img in handwrite(formatted_text, template):
         text_image = img
         break
     
