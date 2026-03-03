@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Card,
   CardContent,
@@ -989,15 +990,16 @@ export default function Home() {
                 <CardTitle className="text-base">排版参数</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="flex items-center space-x-2 pt-1 pb-2">
-                  <input
-                    type="checkbox"
+                <div className="flex items-center space-x-2 pt-1">
+                  <Checkbox
                     id="auto-indent"
                     checked={autoIndent}
-                    onChange={(e) => setAutoIndent(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-slate-800 focus:ring-slate-800"
+                    onCheckedChange={(checked) => setAutoIndent(checked as boolean)}
                   />
-                  <Label htmlFor="auto-indent" className="text-[12px] font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                  <Label
+                    htmlFor="auto-indent"
+                    className="text-[12px] font-medium leading-none cursor-pointer"
+                  >
                     首行自动缩进 (2字符)
                   </Label>
                 </div>
