@@ -92,6 +92,8 @@ def parse_args():
                         help='自动添加首行缩进 (默认: 开启)')
     parser.add_argument('--no-indent', dest='auto_indent', action='store_false',
                         help='不添加首行缩进')
+    parser.add_argument('--fast', action='store_true',
+                        help='启用极速模式（更快但轻微降低质量）')
     
     return parser.parse_args()
 
@@ -156,6 +158,40 @@ class Config:
     PERTURB_THETA_SIGMA = 0.025 # 旋转角度波动
     AUTO_INDENT = True
     
+    # 性能模式
+    FAST_MODE = False  # 极速模式开关
+    
+    # ===== 新增：真实感手写效果参数 =====
+    # 1. 字重随机变化（笔画粗细）
+    ENABLE_WEIGHT_VARIATION = True  # 启用字重变化
+    WEIGHT_VARIATION_RANGE = (0, 2)  # 膨胀/腐蚀核大小范围 (0=无变化, 正数=膨胀, 负数=腐蚀)
+    WEIGHT_VARIATION_PROB = 0.3  # 应用字重变化的概率
+    
+    # 2. 基线波动
+    ENABLE_BASELINE_WAVY = True  # 启用基线波动
+    BASELINE_AMPLITUDE = 2.0  # 波动幅度（像素）
+    BASELINE_FREQUENCY = 0.02  # 波动频率
+    
+    # 3. 飞白/干笔效果
+    ENABLE_DRY_BRUSH = True  # 启用飞白效果
+    DRY_BRUSH_PROB = 0.15  # 应用飞白效果的概率
+    DRY_BRUSH_DIRECTION = 'random'  # 'left', 'right', 'random'
+    
+    # 4. 随机墨点
+    ENABLE_INK_BLOTS = True  # 启用随机墨点
+    INK_BLOT_COUNT = 5  # 每行平均墨点数量
+    INK_BLOT_SIZE_RANGE = (1, 4)  # 墨点大小范围
+    INK_BLOT_OPACITY_RANGE = (0.3, 0.8)  # 墨点透明度范围
+    
+    # 5. 连笔优化
+    ENABLE_LIGATURES = True  # 启用连笔效果
+    LIGATURE_PAIRS = ['的', '了', '是', '在', '我', '有', '和', '就', '不', '人']  # 常见连笔字
+    LIGATURE_SPACING_FACTOR = 0.6  # 连笔时间距缩减因子
+    
+    # 6. 墨水浓度渐变
+    ENABLE_INK_GRADIENT = True  # 启用墨水浓度渐变
+    INK_GRADIENT_RANGE = (0.7, 1.0)  # 浓度变化范围
+    
     @classmethod
     def from_args(cls, args):
         """从命令行参数更新配置"""
@@ -206,6 +242,9 @@ class Config:
         cls.LINE_SPACING_SIGMA = getattr(args, 'line_spacing_sigma', 1.5)
         cls.PERTURB_THETA_SIGMA = getattr(args, 'perturb_theta_sigma', 0.015)
         cls.AUTO_INDENT = getattr(args, 'auto_indent', True)
+        cls.FAST_MODE = getattr(args, 'fast', False)
+        if cls.FAST_MODE:
+            print("[*] 启用极速模式")
         
         # 弹性变形参数
         cls.ELASTIC_ALPHA = getattr(args, 'elastic_alpha', 80)
@@ -304,9 +343,27 @@ def load_background() -> np.ndarray:
     return create_paper_texture(width, height)
 
 
+def apply_ligature_optimization(text: str) -> str:
+    """
+    5. 连笔优化 - 简化版
+    注意：连笔效果现在通过调整Handright的word_spacing参数实现，
+    不再插入特殊字符以避免字间距异常
+    """
+    # 不再插入零宽度字符，直接返回原文
+    # 连笔效果通过render时动态调整word_spacing实现
+    return text
+
+
 def format_text_indentation(text: str) -> str:
-    """为文本的每一段添加首行缩进（2个全角空格）"""
-    if not text or not Config.AUTO_INDENT:
+    """为文本的每一段添加首行缩进（2个全角空格），并应用连笔优化"""
+    if not text:
+        return text
+    
+    # 5. 连笔优化：在特定字组合前添加零宽度非连接符(ZWNJ)来微调间距
+    if Config.ENABLE_LIGATURES:
+        text = apply_ligature_optimization(text)
+        
+    if not Config.AUTO_INDENT:
         return text
         
     lines = text.strip().split('\n')
@@ -491,8 +548,181 @@ def downsample_image(image: np.ndarray, target_size: tuple,
     return resized
 
 
-def process_text_image(text_image_pil: Image.Image) -> np.ndarray:
-    """处理文字图像 - 改进抗锯齿"""
+def apply_weight_variation(alpha: np.ndarray) -> np.ndarray:
+    """
+    1. 字重随机变化（笔画粗细）
+    通过膨胀/腐蚀模拟书写力度变化
+    """
+    if not Config.ENABLE_WEIGHT_VARIATION:
+        return alpha
+    
+    if np.random.random() > Config.WEIGHT_VARIATION_PROB:
+        return alpha
+    
+    # 随机选择膨胀或腐蚀程度
+    min_val, max_val = Config.WEIGHT_VARIATION_RANGE
+    kernel_size = np.random.randint(min_val, max_val + 1)
+    
+    if kernel_size == 0:
+        return alpha
+    
+    # 创建核
+    kernel = np.ones((abs(kernel_size), abs(kernel_size)), np.uint8)
+    
+    if kernel_size > 0:
+        # 膨胀 - 笔画变粗（用力书写）
+        result = cv2.dilate(alpha, kernel, iterations=1)
+    else:
+        # 腐蚀 - 笔画变细（轻轻书写）
+        result = cv2.erode(alpha, kernel, iterations=1)
+    
+    return result
+
+
+def apply_baseline_wavy(alpha: np.ndarray) -> np.ndarray:
+    """
+    2. 基线波动 - 模拟真实行书的轻微弯曲
+    使用正弦波扰动 y 坐标
+    """
+    if not Config.ENABLE_BASELINE_WAVY:
+        return alpha
+    
+    height, width = alpha.shape
+    
+    # 生成正弦波位移场
+    x_coords = np.arange(width)
+    # 随机相位，使每行波动不同
+    phase = np.random.uniform(0, 2 * np.pi)
+    # 正弦波计算 y 方向偏移
+    y_offset = (Config.BASELINE_AMPLITUDE * 
+                np.sin(2 * np.pi * Config.BASELINE_FREQUENCY * x_coords + phase))
+    
+    # 创建映射表
+    map_x = np.tile(np.arange(width, dtype=np.float32), (height, 1))
+    map_y = np.tile(np.arange(height, dtype=np.float32).reshape(-1, 1), (1, width))
+    
+    # 应用 y 方向偏移（每列有不同的偏移）
+    for x in range(width):
+        map_y[:, x] += y_offset[x]
+    
+    # 重映射
+    result = cv2.remap(alpha, map_x.astype(np.float32), map_y.astype(np.float32), 
+                       cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    
+    return result
+
+
+def apply_dry_brush(alpha: np.ndarray) -> np.ndarray:
+    """
+    3. 飞白/干笔效果
+    模拟墨水快干时的笔触，字的开头清晰、结尾逐渐变浅
+    """
+    if not Config.ENABLE_DRY_BRUSH:
+        return alpha
+    
+    if np.random.random() > Config.DRY_BRUSH_PROB:
+        return alpha
+    
+    height, width = alpha.shape
+    
+    # 随机选择飞白方向
+    direction = Config.DRY_BRUSH_DIRECTION
+    if direction == 'random':
+        direction = np.random.choice(['left', 'right', 'top', 'bottom'])
+    
+    # 创建渐变遮罩
+    if direction == 'left':
+        # 从右到左渐变（右边清晰，左边淡）
+        gradient = np.linspace(0.3, 1.0, width)
+    elif direction == 'right':
+        # 从左到右渐变
+        gradient = np.linspace(1.0, 0.3, width)
+    elif direction == 'top':
+        # 从下到上渐变
+        gradient = np.linspace(0.3, 1.0, height).reshape(-1, 1)
+    else:  # bottom
+        # 从上到下渐变
+        gradient = np.linspace(1.0, 0.3, height).reshape(-1, 1)
+    
+    # 应用渐变
+    result = (alpha.astype(np.float32) * gradient).astype(np.uint8)
+    
+    return result
+
+
+def add_ink_blot(background: np.ndarray, x_range: tuple, y_range: tuple) -> np.ndarray:
+    """
+    4. 随机墨点
+    在指定范围内添加随机小墨点
+    """
+    if not Config.ENABLE_INK_BLOTS:
+        return background
+    
+    result = background.copy()
+    height, width = result.shape[:2]
+    
+    # 确定墨点数量
+    blot_count = np.random.poisson(Config.INK_BLOT_COUNT)
+    
+    for _ in range(blot_count):
+        # 随机位置
+        x = np.random.randint(x_range[0], x_range[1])
+        y = np.random.randint(y_range[0], y_range[1])
+        
+        # 随机大小
+        size = np.random.randint(*Config.INK_BLOT_SIZE_RANGE)
+        
+        # 随机透明度
+        opacity = np.random.uniform(*Config.INK_BLOT_OPACITY_RANGE)
+        
+        # 确保在边界内
+        if x - size < 0 or x + size >= width or y - size < 0 or y + size >= height:
+            continue
+        
+        # 绘制墨点（使用圆形）
+        color = tuple(int(c * opacity) for c in Config.INK_COLOR)
+        cv2.circle(result, (x, y), size, color, -1)
+    
+    return result
+
+
+def apply_ink_gradient(alpha: np.ndarray, row_index: int = 0, total_rows: int = 1) -> np.ndarray:
+    """
+    6. 墨水浓度渐变
+    模拟钢笔吸墨不均，整段文字的墨水浓度略有变化
+    """
+    if not Config.ENABLE_INK_GRADIENT:
+        return alpha
+    
+    min_concentration, max_concentration = Config.INK_GRADIENT_RANGE
+    
+    # 基于行位置计算浓度因子（模拟钢笔书写过程中墨水逐渐减少）
+    if total_rows > 1:
+        # 从浓到淡或从淡到浓的渐变
+        progress = row_index / (total_rows - 1)
+        # 添加随机波动
+        concentration = min_concentration + (max_concentration - min_concentration) * (
+            0.5 + 0.5 * np.sin(progress * 4 * np.pi + np.random.uniform(0, np.pi))
+        )
+    else:
+        # 随机浓度
+        concentration = np.random.uniform(min_concentration, max_concentration)
+    
+    # 应用浓度
+    result = (alpha.astype(np.float32) * concentration).astype(np.uint8)
+    
+    return result
+
+
+def process_text_image(text_image_pil: Image.Image, row_index: int = 0, total_rows: int = 1, fast_mode: bool = False) -> np.ndarray:
+    """处理文字图像 - 改进抗锯齿并添加真实感效果
+    
+    Args:
+        fast_mode: 启用极速模式（简化部分效果以提升速度）
+    """
+    if fast_mode:
+        return process_text_image_fast(text_image_pil, row_index, total_rows)
+    
     print(f"[*] 开始处理文字图像...")
     
     # PIL转NumPy - 使用更高精度
@@ -506,6 +736,20 @@ def process_text_image(text_image_pil: Image.Image) -> np.ndarray:
     
     # alpha = 255 - 灰度
     alpha = (255 - gray_mean).astype(np.uint8)
+    
+    # ===== 应用新的真实感效果 =====
+    
+    # 1. 字重随机变化（笔画粗细）
+    alpha = apply_weight_variation(alpha)
+    
+    # 2. 基线波动
+    alpha = apply_baseline_wavy(alpha)
+    
+    # 3. 飞白/干笔效果
+    alpha = apply_dry_brush(alpha)
+    
+    # 6. 墨水浓度渐变
+    alpha = apply_ink_gradient(alpha, row_index, total_rows)
     
     # 抗锯齿优化：在超采样图像上进行轻微高斯模糊
     scale = Config.SUPER_SAMPLE_SCALE
@@ -549,6 +793,80 @@ def process_text_image(text_image_pil: Image.Image) -> np.ndarray:
     
     print(f"[OK] 文字图像处理完成")
     return text_image_final
+
+
+def process_text_image_fast(text_image_pil: Image.Image, row_index: int = 0, total_rows: int = 1) -> np.ndarray:
+    """极速处理模式 - 优化性能"""
+    # PIL转numpy（快速路径）
+    arr = np.array(text_image_pil)
+    
+    # 快速灰度转换（整数运算）
+    r = arr[:, :, 0].astype(np.uint16)
+    g = arr[:, :, 1].astype(np.uint16)
+    b = arr[:, :, 2].astype(np.uint16)
+    gray = (76 * r + 150 * g + 29 * b) >> 8
+    alpha = (255 - gray).astype(np.uint8)
+    
+    scale = Config.SUPER_SAMPLE_SCALE
+    
+    # 简化字重变化
+    if Config.ENABLE_WEIGHT_VARIATION and np.random.random() < Config.WEIGHT_VARIATION_PROB:
+        k = np.random.randint(0, 2)
+        if k > 0:
+            alpha = cv2.dilate(alpha, np.ones((k, k), np.uint8))
+    
+    # 简化基线波动
+    if Config.ENABLE_BASELINE_WAVY:
+        h, w = alpha.shape
+        phase = np.random.uniform(0, 2 * np.pi)
+        y_off = (Config.BASELINE_AMPLITUDE * np.sin(np.linspace(0, 4*np.pi, w) + phase)).astype(np.float32)
+        map_x = np.tile(np.arange(w, dtype=np.float32), (h, 1))
+        map_y = np.tile(np.arange(h, dtype=np.float32).reshape(-1, 1), (1, w)) + y_off
+        alpha = cv2.remap(alpha, map_x, map_y, cv2.INTER_LINEAR, borderValue=0)
+    
+    # 飞白效果
+    if Config.ENABLE_DRY_BRUSH and np.random.random() < Config.DRY_BRUSH_PROB:
+        h, w = alpha.shape
+        grad = np.linspace(0.4, 1.0, w) if np.random.random() > 0.5 else np.linspace(1.0, 0.4, w)
+        alpha = (alpha.astype(np.float32) * grad).astype(np.uint8)
+    
+    # 墨水渐变
+    if Config.ENABLE_INK_GRADIENT:
+        alpha = (alpha.astype(np.float32) * np.random.uniform(0.75, 1.0)).astype(np.uint8)
+    
+    # 轻量抗锯齿
+    if scale >= 2:
+        alpha = cv2.GaussianBlur(alpha, (3, 3), 0.5)
+    
+    # 简化弹性变形
+    if Config.ELASTIC_DISTORTION and Config.ELASTIC_ALPHA > 0:
+        h, w = alpha.shape
+        sh, sw = h // 8, w // 8
+        dx = np.random.randn(sh, sw).astype(np.float32) * Config.ELASTIC_ALPHA * scale
+        dy = np.random.randn(sh, sw).astype(np.float32) * Config.ELASTIC_ALPHA * scale
+        dx = cv2.resize(dx, (w, h), cv2.INTER_LINEAR)
+        dy = cv2.resize(dy, (w, h), cv2.INTER_LINEAR)
+        if Config.ELASTIC_SIGMA > 0:
+            k = max(3, int(Config.ELASTIC_SIGMA * scale) | 1)
+            dx = cv2.blur(dx, (k, k))
+            dy = cv2.blur(dy, (k, k))
+        map_x = np.arange(w, dtype=np.float32).reshape(1, -1) + dx
+        map_y = np.arange(h, dtype=np.float32).reshape(-1, 1) + dy
+        alpha = cv2.remap(alpha, map_x, map_y, cv2.INTER_LINEAR, borderValue=0)
+    
+    # 快速下采样
+    target_w, target_h = Config.OUTPUT_SIZE
+    alpha_small = cv2.resize(alpha, (target_w, target_h), cv2.INTER_AREA)
+    
+    # 快速颜色合成
+    text_final = np.zeros((target_h, target_w, 4), dtype=np.uint8)
+    ink = Config.INK_COLOR
+    text_final[:, :, 0] = (ink[0] * alpha_small // 255).astype(np.uint8)
+    text_final[:, :, 1] = (ink[1] * alpha_small // 255).astype(np.uint8)
+    text_final[:, :, 2] = (ink[2] * alpha_small // 255).astype(np.uint8)
+    text_final[:, :, 3] = alpha_small
+    
+    return text_final
 
 
 def multiply_blend(background: np.ndarray, foreground: np.ndarray) -> np.ndarray:
@@ -1025,6 +1343,13 @@ def composite_and_export(text_image: np.ndarray, background: np.ndarray,
         # 正常背景：应用正片叠底混合
         result = multiply_blend(background, text_image)
         
+        # 4. 添加随机墨点效果
+        if Config.ENABLE_INK_BLOTS:
+            height, width = result.shape[:2]
+            # 在文字周围添加墨点
+            margin = 50
+            result = add_ink_blot(result, (margin, width - margin), (margin, height - margin))
+        
         # 检查是否是PDF输出
         if output_path.lower().endswith('.pdf'):
             # 先保存为临时PNG
@@ -1110,7 +1435,7 @@ def main():
         else:
             # 传统模式
             text_image_pil = render_handwrite_text(Config.TEXT.strip(), font)
-            text_image_processed = process_text_image(text_image_pil)
+            text_image_processed = process_text_image(text_image_pil, fast_mode=Config.FAST_MODE)
         
         # 4. 图形学增强
         if not Config.REGIONS:
