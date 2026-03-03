@@ -33,7 +33,8 @@ export async function POST(request: NextRequest) {
       wordSpacingSigma = 1.0,
       perturbThetaSigma = 0.015,
       // 字体参数
-      font = "PingFangShaoHuaTi-2.ttf"
+      font = "PingFangShaoHuaTi-2.ttf",
+      autoIndent = true
     } = body;
 
     // 创建临时文件
@@ -99,6 +100,12 @@ export async function POST(request: NextRequest) {
       "--word-spacing-sigma", wordSpacingSigma.toString(),
       "--perturb-theta-sigma", perturbThetaSigma.toString(),
     ];
+
+    if (autoIndent) {
+      pythonArgs.push("--auto-indent");
+    } else {
+      pythonArgs.push("--no-indent");
+    }
 
     console.log("执行Python脚本...");
     console.log("区域数量:", regions.length);

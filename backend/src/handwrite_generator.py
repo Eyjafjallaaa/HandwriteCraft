@@ -84,6 +84,10 @@ def parse_args():
                         help='区域渲染参数 (JSON格式)')
     parser.add_argument('--background-image', type=str, default=None,
                         help='背景图片路径 (可选)')
+    parser.add_argument('--auto-indent', action='store_true', default=True,
+                        help='自动添加首行缩进 (默认: 开启)')
+    parser.add_argument('--no-indent', dest='auto_indent', action='store_false',
+                        help='不添加首行缩进')
     
     return parser.parse_args()
 
@@ -138,10 +142,10 @@ class Config:
     
     # 清晰度和手写参数
     SUPER_SAMPLE_SCALE = 2  # 2倍超采样保证清晰度
-    FONT_SIZE_SIGMA = 1.2
     WORD_SPACING_SIGMA = 1.0
     LINE_SPACING_SIGMA = 1.5
     PERTURB_THETA_SIGMA = 0.015
+    AUTO_INDENT = True
     
     @classmethod
     def from_args(cls, args):
@@ -189,10 +193,10 @@ class Config:
         
         # 清晰度和手写参数
         cls.SUPER_SAMPLE_SCALE = getattr(args, 'quality', 3)
-        cls.FONT_SIZE_SIGMA = getattr(args, 'font_size_sigma', 1.2)
         cls.WORD_SPACING_SIGMA = getattr(args, 'word_spacing_sigma', 1.0)
         cls.LINE_SPACING_SIGMA = getattr(args, 'line_spacing_sigma', 1.5)
         cls.PERTURB_THETA_SIGMA = getattr(args, 'perturb_theta_sigma', 0.015)
+        cls.AUTO_INDENT = getattr(args, 'auto_indent', True)
         
         # 背景图片
         cls.BACKGROUND_IMAGE = getattr(args, 'background_image', None)
@@ -286,6 +290,23 @@ def load_background() -> np.ndarray:
     return create_paper_texture(width, height)
 
 
+def format_text_indentation(text: str) -> str:
+    """为文本的每一段添加首行缩进（2个全角空格）"""
+    if not text or not Config.AUTO_INDENT:
+        return text
+        
+    lines = text.strip().split('\n')
+    formatted_lines = []
+    for line in lines:
+        stripped = line.lstrip(' \t\u3000\xa0')
+        if stripped:
+            formatted_lines.append('　　' + stripped)
+        else:
+            formatted_lines.append(line)
+            
+    return '\n'.join(formatted_lines)
+
+
 def render_handwrite_text(text: str, font) -> Image.Image:
     """
     使用Handright渲染手写文本
@@ -344,7 +365,11 @@ def render_handwrite_text(text: str, font) -> Image.Image:
     
     # 执行渲染
     text_image = None
-    for img in handwrite(text, template):
+    
+    # 添加首行缩进
+    formatted_text = format_text_indentation(text)
+    
+    for img in handwrite(formatted_text, template):
         text_image = img
         break
     
@@ -789,7 +814,11 @@ def render_region_text(region: dict, font, background: np.ndarray) -> np.ndarray
     
     # 渲染文字
     text_image = None
-    for img in handwrite(text.strip(), template):
+    
+    # 添加首行缩进
+    formatted_text = format_text_indentation(text)
+    
+    for img in handwrite(formatted_text, template):
         text_image = img
         break
     

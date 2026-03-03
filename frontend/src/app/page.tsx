@@ -37,12 +37,13 @@ export default function Home() {
   const [inkColor, setInkColor] = useState("#282830");
   const [quality, setQuality] = useState(10);
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
-  
+
   // Handright 手写效果参数
   const [fontSizeSigma, setFontSizeSigma] = useState(1.2);    // 字体大小波动
   const [lineSpacingSigma, setLineSpacingSigma] = useState(1.5); // 行距波动
   const [wordSpacingSigma, setWordSpacingSigma] = useState(1.0); // 字间距波动
   const [perturbThetaSigma, setPerturbThetaSigma] = useState(0.015); // 角度波动/倾斜度
+  const [autoIndent, setAutoIndent] = useState(true); // 首行自动缩进
 
   // 手写风格预设
   const [handStyle, setHandStyle] = useState<"formal" | "natural" | "casual">("natural");
@@ -69,23 +70,23 @@ export default function Home() {
         break;
     }
   };
-  
+
   // 字体选择
-  const [fonts, setFonts] = useState<{name: string, file: string, path: string}[]>([]);
+  const [fonts, setFonts] = useState<{ name: string, file: string, path: string }[]>([]);
   const [selectedFont, setSelectedFont] = useState("PingFangShaoHuaTi-2.ttf");
   const [fontsLoading, setFontsLoading] = useState(false);
-  
+
   const [generating, setGenerating] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [filename, setFilename] = useState("handwrite");
   const [previewKey, setPreviewKey] = useState(0);
-  
+
   // 图片缩放状态
   const [zoom, setZoom] = useState(100);
   const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState<{x: number, y: number} | null>(null);
-  const [pan, setPan] = useState({x: 0, y: 0});
-  
+  const [dragStart, setDragStart] = useState<{ x: number, y: number } | null>(null);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+
   // PDF相关状态
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [pdfImages, setPdfImages] = useState<string[]>([]);
@@ -93,14 +94,14 @@ export default function Home() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(0);
-  
-  const [pageRegions, setPageRegions] = useState<{[page: number]: BoxRegion[]}>({});
-  
+
+  const [pageRegions, setPageRegions] = useState<{ [page: number]: BoxRegion[] }>({});
+
   // 获取当前页的区域
   const regions = pageRegions[currentPage] || [];
   const [isSelecting, setIsSelecting] = useState(false);
-  const [selectionStart, setSelectionStart] = useState<{x: number, y: number} | null>(null);
-  const [selectionEnd, setSelectionEnd] = useState<{x: number, y: number} | null>(null);
+  const [selectionStart, setSelectionStart] = useState<{ x: number, y: number } | null>(null);
+  const [selectionEnd, setSelectionEnd] = useState<{ x: number, y: number } | null>(null);
 
   // 鼠标按键状态：null=无, 0=左键, 2=右键
   const [mouseButton, setMouseButton] = useState<number | null>(null);
@@ -133,17 +134,17 @@ export default function Home() {
     setPreviewUrl(null);
     setPdfLoading(true);
     setCurrentPage(1);
-    
+
     // 检查文件类型
     const isImage = file.type.startsWith('image/');
     const isPdf = file.type === 'application/pdf';
-    
+
     if (!isImage && !isPdf) {
       alert('请上传PDF或图片文件');
       setPdfLoading(false);
       return;
     }
-    
+
     try {
       if (isImage) {
         // 图片文件：直接转为Base64
@@ -160,12 +161,12 @@ export default function Home() {
         // PDF文件：上传到后端转换
         const formData = new FormData();
         formData.append('pdf', file);
-        
+
         const response = await fetch('/api/convert-pdf', {
           method: 'POST',
           body: formData
         });
-        
+
         if (response.ok) {
           const data = await response.json();
           setPdfImages(data.images);
@@ -184,7 +185,7 @@ export default function Home() {
       }
     }
   };
-  
+
   // 切换页面
   const handlePageChange = (page: number) => {
     if (page >= 1 && page <= totalPages) {
@@ -220,21 +221,21 @@ export default function Home() {
 
   const handleMouseUp = () => {
     if (!isSelecting || !selectionStart || !selectionEnd) return;
-    
+
     const x = Math.min(selectionStart.x, selectionEnd.x);
     const y = Math.min(selectionStart.y, selectionEnd.y);
     const w = Math.abs(selectionEnd.x - selectionStart.x);
     const h = Math.abs(selectionEnd.y - selectionStart.y);
-    
+
     if (w > 20 && h > 20) {
       const containerWidth = containerRef.current?.clientWidth || 1;
       const containerHeight = containerRef.current?.clientHeight || 1;
-      
+
       const xPercent = x / containerWidth * 100;
       const yPercent = y / containerHeight * 100;
       const wPercent = w / containerWidth * 100;
       const hPercent = h / containerHeight * 100;
-      
+
       const newRegion: BoxRegion = {
         id: Date.now(),
         x: xPercent,
@@ -250,7 +251,7 @@ export default function Home() {
         [currentPage]: [...regions, newRegion]
       });
     }
-    
+
     // 框选完成后不自动退出框选模式，需要手动关闭
     setIsSelecting(false);
     setSelectionStart(null);
@@ -312,7 +313,7 @@ export default function Home() {
         exportFormat
       };
       console.log("发送请求:", JSON.stringify(requestData, null, 2));
-      
+
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -345,10 +346,12 @@ export default function Home() {
           wordSpacingSigma,
           perturbThetaSigma,
           // 字体参数 - 全局默认字体
-          font: selectedFont
+          font: selectedFont,
+          // 首行缩进
+          autoIndent
         })
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.error || "生成失败");
@@ -358,7 +361,7 @@ export default function Home() {
       setPreviewUrl(data.image);
       setPreviewKey(Date.now());
       setZoom(100);
-      setPan({x: 0, y: 0});
+      setPan({ x: 0, y: 0 });
     } catch (error) {
       console.error("生成失败:", error);
       alert("生成失败，请重试");
@@ -369,10 +372,10 @@ export default function Home() {
 
   const handleDownload = async () => {
     if (!previewUrl) return;
-    
+
     // 构建文件名
     const finalFilename = filename.trim() || "handwrite";
-    
+
     // 如果选择 PNG 格式，直接下载预览图
     if (exportFormat === "png") {
       const a = document.createElement("a");
@@ -383,7 +386,7 @@ export default function Home() {
       document.body.removeChild(a);
       return;
     }
-    
+
     // 如果选择 PDF 格式，需要重新生成
     try {
       setGenerating(true);
@@ -419,14 +422,16 @@ export default function Home() {
           wordSpacingSigma,
           perturbThetaSigma,
           // 字体参数 - 全局默认字体
-          font: selectedFont
+          font: selectedFont,
+          // 首行缩进
+          autoIndent
         })
       });
-      
+
       if (!response.ok) {
         throw new Error("生成 PDF 失败");
       }
-      
+
       const data = await response.json();
       const a = document.createElement("a");
       a.href = data.image;
@@ -467,7 +472,7 @@ export default function Home() {
   const handleZoomOut = () => setZoom(prev => Math.max(prev - 25, 25));
   const handleZoomReset = () => {
     setZoom(100);
-    setPan({x: 0, y: 0});
+    setPan({ x: 0, y: 0 });
   };
 
   return (
@@ -484,7 +489,7 @@ export default function Home() {
 
       {/* 三栏布局 */}
       <div className="flex h-[calc(100vh-60px)]">
-        
+
         {/* 左侧 - 上传PDF、框选区域、填写内容 */}
         <div className="w-72 bg-white border-r flex flex-col">
           {/* 可滚动的内容区域 */}
@@ -525,7 +530,7 @@ export default function Home() {
                 </CardHeader>
                 <CardContent>
                   <p className="text-xs text-slate-600 mb-2">
-                    <span className="font-medium">左键拖动</span>：框选区域<br/>
+                    <span className="font-medium">左键拖动</span>：框选区域<br />
                     {previewUrl && <><span className="font-medium">右键拖动</span>：移动预览</>}
                   </p>
                   {regions.length > 0 && (
@@ -666,7 +671,7 @@ export default function Home() {
               </Card>
             )}
           </div>
-          
+
           {/* 固定在底部的生成按钮 */}
           <div className="p-4 border-t bg-white">
             <Button
@@ -689,11 +694,11 @@ export default function Home() {
 
         {/* 中间 - PDF预览/框选/结果 */}
         <div className="flex-1 bg-slate-200 p-4 overflow-auto flex flex-col items-center relative">
-          <div 
+          <div
             ref={containerRef}
             className={`relative bg-white shadow-lg select-none ${isSelecting ? 'cursor-crosshair' : (previewUrl ? 'cursor-default' : 'cursor-crosshair')}`}
-            style={{ 
-              width: '600px', 
+            style={{
+              width: '600px',
               userSelect: 'none',
               WebkitUserSelect: 'none',
             }}
@@ -781,7 +786,7 @@ export default function Home() {
                   </button>
                 </div>
                 {/* 可缩放的图片容器 */}
-                <div 
+                <div
                   className="w-full h-full flex items-center justify-center"
                   style={{
                     transform: `scale(${zoom / 100}) translate(${pan.x}px, ${pan.y}px)`,
@@ -789,11 +794,11 @@ export default function Home() {
                     transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                   }}
                 >
-                  <img 
+                  <img
                     key={previewKey}
-                    src={previewUrl} 
-                    alt="预览" 
-                    className="w-full h-auto max-w-none" 
+                    src={previewUrl}
+                    alt="预览"
+                    className="w-full h-auto max-w-none"
                     draggable={false}
                   />
                   {regions.map((region, index) => (
@@ -849,7 +854,7 @@ export default function Home() {
                     </span>
                   </div>
                 ))}
-                
+
                 {/* 选区预览 */}
                 {isSelecting && selectionStart && selectionEnd && (
                   <div
@@ -868,12 +873,12 @@ export default function Home() {
               <div className="w-full h-96 flex items-center justify-center text-slate-400">
                 <div className="text-center">
                   <Upload className="w-12 h-12 mx-auto mb-2" />
-                  <p className="text-sm">上传文件后<br/>在此处框选填写区域</p>
+                  <p className="text-sm">上传文件后<br />在此处框选填写区域</p>
                 </div>
               </div>
             )}
           </div>
-          
+
           {/* 翻页控件 - 放在右下角 */}
           {pdfImageUrl && totalPages > 1 && (
             <div className="absolute bottom-4 right-4 z-30 bg-white rounded-lg shadow p-2 flex items-center gap-2">
@@ -944,31 +949,28 @@ export default function Home() {
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     onClick={() => applyHandStyle("formal")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
-                      handStyle === "formal"
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                    }`}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "formal"
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                      }`}
                   >
                     工整正式
                   </button>
                   <button
                     onClick={() => applyHandStyle("natural")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
-                      handStyle === "natural"
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                    }`}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "natural"
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                      }`}
                   >
                     自然手写
                   </button>
                   <button
                     onClick={() => applyHandStyle("casual")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${
-                      handStyle === "casual"
-                        ? "bg-slate-800 text-white border-slate-800"
-                        : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                    }`}
+                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "casual"
+                      ? "bg-slate-800 text-white border-slate-800"
+                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
+                      }`}
                   >
                     潦草随性
                   </button>
@@ -987,6 +989,18 @@ export default function Home() {
                 <CardTitle className="text-base">排版参数</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+                <div className="flex items-center space-x-2 pt-1 pb-2">
+                  <input
+                    type="checkbox"
+                    id="auto-indent"
+                    checked={autoIndent}
+                    onChange={(e) => setAutoIndent(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-slate-800 focus:ring-slate-800"
+                  />
+                  <Label htmlFor="auto-indent" className="text-[12px] font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                    首行自动缩进 (2字符)
+                  </Label>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label className="text-[10px] text-slate-500">字体大小</Label>
@@ -1167,7 +1181,7 @@ export default function Home() {
               </CardContent>
             </Card>
           </div>
-          
+
           {/* 下载区域 - 仅在预览时显示，放在中间栏底部 */}
           {previewUrl && (
             <div className="mt-4 bg-white rounded-lg shadow-lg p-3 flex flex-col items-center gap-2 w-full max-w-[600px]">
