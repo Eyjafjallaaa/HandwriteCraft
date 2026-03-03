@@ -869,47 +869,54 @@ def process_text_image_fast(text_image_pil: Image.Image, row_index: int = 0, tot
     return text_final
 
 
-def multiply_blend(background: np.ndarray, foreground: np.ndarray) -> np.ndarray:
+def multiply_blend(background: np.ndarray, foreground: np.ndarray, fast_mode: bool = False) -> np.ndarray:
     """
     正片叠底混合模式
-    
+
     【数学公式】
     Result = (Background × Foreground) / 255
-    
+
     【为什么能产生"渗入"效果？】
-    
+
     情况1：背景白色(255)
     Result = (255 × Ink) / 255 = Ink
     白纸上墨水保持原色
-    
+
     情况2：背景米黄色(250,248,245)，墨水深蓝黑(40,40,50)
     R: (250 × 40) / 255 ≈ 39
-    G: (248 × 40) / 255 ≈ 39  
+    G: (248 × 40) / 255 ≈ 39
     B: (245 × 50) / 255 ≈ 48
     结果是略带蓝调的深灰色，像墨水渗入纸张
-    
+
     物理解释：
     正片叠底模拟光线穿过墨水层照射到纸张再反射回眼睛的过程：
     最终光 = 入射光 × 墨水透过率 × 纸张反射率 × 墨水透过率
+
+    Args:
+        fast_mode: 极速模式，跳过耗时的边缘保持滤波
     """
     print(f"[*] 应用正片叠底混合...")
-    
+
     fg_alpha = foreground[:, :, 3:4].astype(np.float32) / 255.0
     fg_color = foreground[:, :, :3].astype(np.float32)
     bg_color = background.astype(np.float32)
-    
+
     # 正片叠底
     multiply_result = (bg_color * fg_color) / 255.0
-    
+
     # Alpha混合
     final_result = multiply_result * fg_alpha + bg_color * (1 - fg_alpha)
-    
+
     final_result = np.clip(final_result, 0, 255).astype(np.uint8)
-    
-    # 最终抗锯齿：轻微平滑处理
-    # 使用双边滤波在保持边缘的同时减少锯齿
-    final_result = cv2.edgePreservingFilter(final_result, flags=1, sigma_s=10, sigma_r=0.15)
-    
+
+    # 最终抗锯齿：极速模式下跳过耗时的边缘保持滤波
+    if not fast_mode:
+        # 使用双边滤波在保持边缘的同时减少锯齿
+        final_result = cv2.edgePreservingFilter(final_result, flags=1, sigma_s=10, sigma_r=0.15)
+    else:
+        # 极速模式：使用轻量级高斯模糊替代
+        final_result = cv2.GaussianBlur(final_result, (3, 3), 0.5)
+
     print(f"[OK] 正片叠底完成")
     return final_result
 
@@ -1285,7 +1292,7 @@ def composite_and_export_pdf(text_image: np.ndarray, background: np.ndarray,
                                interpolation=cv2.INTER_LANCZOS4)
     
     # 应用正片叠底混合
-    result = multiply_blend(background, text_image)
+    result = multiply_blend(background, text_image, fast_mode=Config.FAST_MODE)
     
     # 保存为PNG临时文件
     temp_png = output_path.replace('.pdf', '_temp.png')
@@ -1341,7 +1348,7 @@ def composite_and_export(text_image: np.ndarray, background: np.ndarray,
         result.save(output_path, "PNG")
     else:
         # 正常背景：应用正片叠底混合
-        result = multiply_blend(background, text_image)
+        result = multiply_blend(background, text_image, fast_mode=Config.FAST_MODE)
         
         # 4. 添加随机墨点效果
         if Config.ENABLE_INK_BLOTS:
