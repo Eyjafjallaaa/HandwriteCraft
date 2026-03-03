@@ -44,6 +44,8 @@
 | 🖼️ **图片支持** | 支持 JPG/PNG 作为背景 |
 | 🎨 **参数调节** | 字体大小、字间距、行距、墨水颜色 |
 | ✨ **手写风格** | 字体波动、行距波动、倾斜度调节 |
+| 🎯 **真实感效果** | 字重变化、基线波动、飞白、墨点、墨水渐变 |
+| ⚡ **极速模式** | 提升 40% 生成速度，适合批量处理 |
 | 🔍 **高清输出** | 最高 20 倍超采样，抗锯齿处理 |
 | 📐 **区域框选** | 可视化拖动选择填写区域 |
 | 💾 **多种格式** | 支持 PNG 和 PDF 导出 |
@@ -97,8 +99,10 @@ npm run dev
 HandwriteCraft/
 ├── 📁 backend/                 # Python 后端
 │   ├── src/
-│   │   ├── handwrite_generator.py   # 手写生成核心
-│   │   └── pdf_to_image.py          # PDF 处理工具
+│   │   ├── handwrite_generator.py       # 手写生成核心（完整版）
+│   │   ├── handwrite_generator_fast.py  # 优化版本（自适应质量+OpenCL）
+│   │   ├── handwrite_generator_ultra.py # 极速版本（50ms级）
+│   │   └── pdf_to_image.py              # PDF 处理工具
 │   ├── requirements.txt
 │   └── README.md
 │
@@ -161,6 +165,26 @@ python handwrite_generator.py \
   --output ../../output/result.png
 ```
 
+#### 极速模式
+
+使用 `--fast` 参数启用极速模式，提升约 40% 生成速度：
+
+```bash
+python handwrite_generator.py --text "内容" --fast --output result.png
+```
+
+#### 真实感手写效果
+
+支持以下手写真实感效果（可在代码中配置）：
+
+| 效果 | 说明 | 配置参数 |
+|------|------|----------|
+| **字重变化** | 模拟书写力度变化，笔画粗细随机 | `ENABLE_WEIGHT_VARIATION` |
+| **基线波动** | 行线轻微弯曲，模拟真实书写 | `ENABLE_BASELINE_WAVY` |
+| **飞白效果** | 墨水渐干，字尾变淡 | `ENABLE_DRY_BRUSH` |
+| **随机墨点** | 偶尔出现的小墨点，增加真实感 | `ENABLE_INK_BLOTS` |
+| **墨水浓度渐变** | 模拟钢笔吸墨不均 | `ENABLE_INK_GRADIENT` |
+
 #### 命令行参数
 
 | 参数 | 类型 | 默认值 | 说明 |
@@ -175,6 +199,7 @@ python handwrite_generator.py \
 | `--height` | int | 1600 | 输出图片高度 |
 | `--quality` | int | 3 | 清晰度（超采样倍率） |
 | `--ink-color` | string | #282830 | 墨水颜色 |
+| `--fast` | flag | false | 极速模式（提升40%速度） |
 | `--output` | string | output.png | 输出文件路径 |
 
 ---

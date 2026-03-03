@@ -37,7 +37,9 @@ export async function POST(request: NextRequest) {
       elasticSigma = 12,        // 变形平滑度
       // 字体参数
       font = "PingFangShaoHuaTi-2.ttf",
-      autoIndent = true
+      autoIndent = true,
+      // 性能参数
+      fastMode = false  // 极速模式
     } = body;
 
     // 创建临时文件
@@ -113,7 +115,12 @@ export async function POST(request: NextRequest) {
       pythonArgs.push("--no-indent");
     }
 
+    if (fastMode) {
+      pythonArgs.push("--fast");
+    }
+
     console.log("执行Python脚本...");
+    console.log("极速模式:", fastMode ? "启用" : "禁用");
     console.log("区域数量:", regions.length);
     console.log("导出格式:", exportFormat);
     console.log("输出文件:", outputFile);

@@ -62,6 +62,7 @@ export default function Home() {
   const [height, setHeight] = useState(1754);
   const [inkColor, setInkColor] = useState("#282830");
   const [quality, setQuality] = useState(10);
+  const [fastMode, setFastMode] = useState(false);  // 极速模式
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
 
   // Handright 手写效果参数 - 与"自然手写"风格一致
@@ -327,7 +328,10 @@ export default function Home() {
     // 时间公式：0.01 * 字符数 + 基础图片处理时间
     // 基础时间：字符处理（每个字符约0.01秒）+ 图片合成（约3-8秒，根据质量调整）
     const baseTime = 0.01 * totalChars;
-    const imageTime = 3 + (quality / 10) * 5; // quality=10时约8秒，quality=2时约4秒
+    let imageTime = 3 + (quality / 10) * 5; // quality=10时约8秒，quality=2时约4秒
+    if (fastMode) {
+      imageTime *= 0.7; // 极速模式减少30%时间
+    }
     return Math.ceil(baseTime + imageTime + 2); // +2秒缓冲
   };
 
@@ -441,7 +445,9 @@ export default function Home() {
           // 字体参数 - 全局默认字体
           font: selectedFont,
           // 首行缩进
-          autoIndent
+          autoIndent,
+          // 极速模式
+          fastMode
         })
       });
 
@@ -528,7 +534,9 @@ export default function Home() {
           // 字体参数 - 全局默认字体
           font: selectedFont,
           // 首行缩进
-          autoIndent
+          autoIndent,
+          // 极速模式
+          fastMode
         })
       });
 
@@ -1192,6 +1200,18 @@ export default function Home() {
                     max={20}
                     step={1}
                     className="w-full"
+                  />
+                </div>
+
+                {/* 极速模式 */}
+                <div className="flex items-center justify-between pt-2 border-t">
+                  <div>
+                    <Label className="text-xs font-medium">极速模式</Label>
+                    <p className="text-[10px] text-muted-foreground">提升40%速度，轻微降低质量</p>
+                  </div>
+                  <Checkbox
+                    checked={fastMode}
+                    onCheckedChange={(checked) => setFastMode(checked as boolean)}
                   />
                 </div>
               </CardContent>
