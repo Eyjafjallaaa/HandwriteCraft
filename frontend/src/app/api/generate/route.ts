@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    
+
     const {
       pdfDataUrl,
       currentPage = 1,
@@ -42,21 +42,24 @@ export async function POST(request: NextRequest) {
     outputFile = join(tempDir, `output_${timestamp}.${ext}`);
     regionsFile = join(tempDir, `regions_${timestamp}.json`);
     backgroundFile = join(tempDir, `background_${timestamp}.txt`);
-    
+
+    // 项目根目录
+    const projectRoot = join(process.cwd(), "..");
+
     // Python脚本路径
-    const scriptPath = "/Users/vincent/Downloads/学年鉴定/handwrite/backend/src/handwrite_generator.py";
-    
+    const scriptPath = join(projectRoot, "backend/src/handwrite_generator.py");
+
     // 字体路径 - 从 assets/fonts 读取
-    const fontsDir = "/Users/vincent/Downloads/学年鉴定/handwrite/assets/fonts";
+    const fontsDir = join(projectRoot, "assets/fonts");
     const fs = await import("fs");
-    
+
     // 处理全局字体路径
     let fontPath = join(fontsDir, font);
     if (!fs.existsSync(fontPath)) {
       // 如果指定字体不存在，回退到默认字体
       fontPath = join(fontsDir, "PingFangShaoHuaTi-2.ttf");
     }
-    
+
     // 处理每个区域的字体路径
     const processedRegions = regions.map((r: any) => {
       const regionFont = r.font || font;
@@ -66,16 +69,16 @@ export async function POST(request: NextRequest) {
         font: fs.existsSync(regionFontPath) ? regionFontPath : fontPath
       };
     });
-    
+
     // 准备区域数据
     const regionsJson = JSON.stringify(processedRegions);
     await writeFile(regionsFile, regionsJson, "utf-8");
-    
+
     // 将背景图片数据写入临时文件（避免命令行参数过长）
     if (pdfDataUrl) {
       await writeFile(backgroundFile, pdfDataUrl, "utf-8");
     }
-    
+
     // 构建Python命令参数
     const pythonArgs = [
       scriptPath,
@@ -103,14 +106,13 @@ export async function POST(request: NextRequest) {
     console.log("输出文件:", outputFile);
     console.log("区域文件:", regionsFile);
     console.log("背景文件:", pdfDataUrl ? backgroundFile : "无");
-    
+
     await new Promise<void>((resolve, reject) => {
       const proc = spawn("python3", pythonArgs, {
-        cwd: "/Users/vincent/Downloads/学年鉴定/handwrite/backend/src",
-        env: { 
-          ...process.env, 
+        cwd: join(projectRoot, "backend/src"),
+        env: {
+          ...process.env,
           PYTHONIOENCODING: "utf-8",
-          PATH: "/opt/anaconda3/bin:/usr/local/bin:/usr/bin:/bin"
         },
       });
 
@@ -146,31 +148,31 @@ export async function POST(request: NextRequest) {
     if (!fs.existsSync(outputFile)) {
       throw new Error(`输出文件未生成: ${outputFile}`);
     }
-    
+
     // 读取生成的文件并转为base64
     const fileBuffer = fs.readFileSync(outputFile);
     const base64 = fileBuffer.toString("base64");
-    
+
     const mimeType = exportFormat === "pdf" ? "application/pdf" : "image/png";
     const dataUrl = `data:${mimeType};base64,${base64}`;
 
     // 清理临时文件
-    await unlink(regionsFile).catch(() => {});
-    await unlink(outputFile).catch(() => {});
-    if (backgroundFile) await unlink(backgroundFile).catch(() => {});
+    await unlink(regionsFile).catch(() => { });
+    await unlink(outputFile).catch(() => { });
+    if (backgroundFile) await unlink(backgroundFile).catch(() => { });
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       image: dataUrl,
-      format: exportFormat 
+      format: exportFormat
     });
   } catch (error) {
     console.error("生成失败:", error);
-    
+
     // 清理临时文件
-    if (regionsFile) await unlink(regionsFile).catch(() => {});
-    if (outputFile) await unlink(outputFile).catch(() => {});
-    if (backgroundFile) await unlink(backgroundFile).catch(() => {});
-    
+    if (regionsFile) await unlink(regionsFile).catch(() => { });
+    if (outputFile) await unlink(outputFile).catch(() => { });
+    if (backgroundFile) await unlink(backgroundFile).catch(() => { });
+
     return NextResponse.json(
       { error: `生成失败: ${error}` },
       { status: 500 }
