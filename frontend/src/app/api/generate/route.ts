@@ -27,11 +27,14 @@ export async function POST(request: NextRequest) {
       wordSpacing = 3,
       inkColor = "#282830",
       exportFormat = "png",  // png 或 pdf
-      // Handright 手写效果参数
-      fontSizeSigma = 1.2,
-      lineSpacingSigma = 1.5,
-      wordSpacingSigma = 1.0,
-      perturbThetaSigma = 0.015,
+      // Handright 手写效果参数 - 与"自然手写"风格一致
+      fontSizeSigma = 2.5,      // 字体大小波动
+      lineSpacingSigma = 2.0,   // 行距波动
+      wordSpacingSigma = 1.2,   // 字间距波动
+      perturbThetaSigma = 0.025, // 旋转角度波动
+      // 弹性变形参数
+      elasticAlpha = 80,        // 变形幅度
+      elasticSigma = 12,        // 变形平滑度
       // 字体参数
       font = "PingFangShaoHuaTi-2.ttf",
       autoIndent = true
@@ -99,6 +102,9 @@ export async function POST(request: NextRequest) {
       "--line-spacing-sigma", lineSpacingSigma.toString(),
       "--word-spacing-sigma", wordSpacingSigma.toString(),
       "--perturb-theta-sigma", perturbThetaSigma.toString(),
+      // 弹性变形参数
+      "--elastic-alpha", elasticAlpha.toString(),
+      "--elastic-sigma", elasticSigma.toString(),
     ];
 
     if (autoIndent) {

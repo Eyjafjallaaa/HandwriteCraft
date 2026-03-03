@@ -14,7 +14,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { PenLine, Download, Loader2, Upload, X, FileText, ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { PenLine, Download, Loader2, Upload, X, FileText, ChevronLeft, ChevronRight, Clock, Minus, Plus, Moon, Sun } from "lucide-react";
 
 interface BoxRegion {
   id: number;
@@ -29,6 +44,16 @@ interface BoxRegion {
 }
 
 export default function Home() {
+  // 主题状态
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  
+  // 切换主题
+  const toggleTheme = () => {
+    const newTheme = theme === "light" ? "dark" : "light";
+    setTheme(newTheme);
+    document.documentElement.classList.toggle("dark", newTheme === "dark");
+  };
+
   const [fontSize, setFontSize] = useState(45);
   const [lineSpacing, setLineSpacing] = useState(50);
   const [wordSpacing, setWordSpacing] = useState(3);
@@ -39,35 +64,44 @@ export default function Home() {
   const [quality, setQuality] = useState(10);
   const [exportFormat, setExportFormat] = useState<"png" | "pdf">("png");
 
-  // Handright 手写效果参数
-  const [fontSizeSigma, setFontSizeSigma] = useState(1.2);    // 字体大小波动
-  const [lineSpacingSigma, setLineSpacingSigma] = useState(1.5); // 行距波动
-  const [wordSpacingSigma, setWordSpacingSigma] = useState(1.0); // 字间距波动
-  const [perturbThetaSigma, setPerturbThetaSigma] = useState(0.015); // 角度波动/倾斜度
+  // Handright 手写效果参数 - 与"自然手写"风格一致
+  const [fontSizeSigma, setFontSizeSigma] = useState(2.5);    // 字体大小波动
+  const [lineSpacingSigma, setLineSpacingSigma] = useState(2.0); // 行距波动
+  const [wordSpacingSigma, setWordSpacingSigma] = useState(1.2); // 字间距波动
+  const [perturbThetaSigma, setPerturbThetaSigma] = useState(0.025); // 角度波动
+  // 弹性变形参数 - 让每个字产生结构差异
+  const [elasticAlpha, setElasticAlpha] = useState(80);      // 变形幅度
+  const [elasticSigma, setElasticSigma] = useState(12);      // 变形平滑度
   const [autoIndent, setAutoIndent] = useState(true); // 首行自动缩进
 
-  // 手写风格预设
+  // 手写风格预设 - 不同风格有不同的弹性变形程度
   const [handStyle, setHandStyle] = useState<"formal" | "natural" | "casual">("natural");
   const applyHandStyle = (style: "formal" | "natural" | "casual") => {
     setHandStyle(style);
     switch (style) {
-      case "formal": // 工整正式
-        setFontSizeSigma(0.5);
-        setLineSpacingSigma(0.8);
+      case "formal": // 工整正式（轻微变形，主要靠弹性变形产生差异）
+        setFontSizeSigma(1.0);
+        setLineSpacingSigma(0.5);
         setWordSpacingSigma(0.3);
-        setPerturbThetaSigma(0.005);
+        setPerturbThetaSigma(0.01);
+        setElasticAlpha(30);    // 轻微弹性变形
+        setElasticSigma(15);
         break;
-      case "natural": // 自然手写（默认）
-        setFontSizeSigma(1.2);
+      case "natural": // 自然手写（适中变形）
+        setFontSizeSigma(1.5);
+        setLineSpacingSigma(1.0);
+        setWordSpacingSigma(0.6);
+        setPerturbThetaSigma(0.015);
+        setElasticAlpha(80);    // 中等弹性变形
+        setElasticSigma(12);
+        break;
+      case "casual": // 潦草随性（较大变形）
+        setFontSizeSigma(2.0);
         setLineSpacingSigma(1.5);
         setWordSpacingSigma(1.0);
-        setPerturbThetaSigma(0.015);
-        break;
-      case "casual": // 潦草随性
-        setFontSizeSigma(2.0);
-        setLineSpacingSigma(2.5);
-        setWordSpacingSigma(1.8);
-        setPerturbThetaSigma(0.03);
+        setPerturbThetaSigma(0.025);
+        setElasticAlpha(150);   // 明显弹性变形
+        setElasticSigma(10);
         break;
     }
   };
@@ -79,6 +113,13 @@ export default function Home() {
 
   const [generating, setGenerating] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  
+  // 生成进度和倒计时
+  const [showGeneratingModal, setShowGeneratingModal] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [estimatedTime, setEstimatedTime] = useState(0);
+  const [remainingTime, setRemainingTime] = useState(0);
+  const [currentStep, setCurrentStep] = useState("");
   const [filename, setFilename] = useState("handwrite");
   const [previewKey, setPreviewKey] = useState(0);
 
@@ -280,6 +321,16 @@ export default function Home() {
     });
   };
 
+  // 计算预估生成时间（秒）
+  const calculateEstimatedTime = () => {
+    const totalChars = regions.reduce((sum, r) => sum + (r.text?.length || 0), 0);
+    // 时间公式：0.01 * 字符数 + 基础图片处理时间
+    // 基础时间：字符处理（每个字符约0.01秒）+ 图片合成（约3-8秒，根据质量调整）
+    const baseTime = 0.01 * totalChars;
+    const imageTime = 3 + (quality / 10) * 5; // quality=10时约8秒，quality=2时约4秒
+    return Math.ceil(baseTime + imageTime + 2); // +2秒缓冲
+  };
+
   const handleGenerate = async () => {
     if (!pdfImageUrl && regions.length === 0) {
       alert("请先上传文件并框选填写区域");
@@ -292,6 +343,42 @@ export default function Home() {
 
     setGenerating(true);
     setPreviewUrl(null);
+    setShowGeneratingModal(true);
+    
+    // 计算预估时间并开始倒计时
+    const estimated = calculateEstimatedTime();
+    setEstimatedTime(estimated);
+    setRemainingTime(estimated);
+    setProgress(0);
+    setCurrentStep("正在初始化...");
+
+    // 使用 startTime 来跟踪实际经过的时间
+    const startTime = Date.now();
+    const estimatedMs = estimated * 1000;
+    
+    // 模拟进度更新
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, estimatedMs - elapsed);
+      const newRemainingTime = Math.ceil(remaining / 1000);
+      
+      setRemainingTime(newRemainingTime);
+      
+      // 基于实际经过时间计算进度（线性增长，更真实）
+      const progressPercent = Math.min(95, Math.floor((elapsed / estimatedMs) * 100));
+      setProgress(progressPercent);
+      
+      // 根据实际进度百分比更新步骤
+      const steps = [
+        "正在加载字体...",
+        "正在渲染手写效果...",
+        "正在应用弹性变形...",
+        "正在合成图像...",
+        "正在优化画质...",
+      ];
+      const stepIndex = Math.floor((progressPercent / 95) * steps.length);
+      setCurrentStep(steps[Math.min(stepIndex, steps.length - 1)]);
+    }, 200); // 更频繁更新，让进度条更平滑
 
     try {
       const requestData = {
@@ -335,6 +422,8 @@ export default function Home() {
             lineSpacingSigma,
             wordSpacingSigma,
             perturbThetaSigma,
+            elasticAlpha,
+            elasticSigma,
             font: r.font ?? selectedFont // 使用区域独立字体或全局字体
           })),
           width,
@@ -346,6 +435,9 @@ export default function Home() {
           lineSpacingSigma,
           wordSpacingSigma,
           perturbThetaSigma,
+          // 弹性变形参数
+          elasticAlpha,
+          elasticSigma,
           // 字体参数 - 全局默认字体
           font: selectedFont,
           // 首行缩进
@@ -367,7 +459,13 @@ export default function Home() {
       console.error("生成失败:", error);
       alert("生成失败，请重试");
     } finally {
-      setGenerating(false);
+      clearInterval(progressInterval);
+      setProgress(100);
+      setCurrentStep("生成完成！");
+      setTimeout(() => {
+        setGenerating(false);
+        setShowGeneratingModal(false);
+      }, 500);
     }
   };
 
@@ -411,6 +509,8 @@ export default function Home() {
             lineSpacingSigma,
             wordSpacingSigma,
             perturbThetaSigma,
+            elasticAlpha,
+            elasticSigma,
             font: r.font ?? selectedFont // 使用区域独立字体或全局字体
           })),
           width,
@@ -422,6 +522,9 @@ export default function Home() {
           lineSpacingSigma,
           wordSpacingSigma,
           perturbThetaSigma,
+          // 弹性变形参数
+          elasticAlpha,
+          elasticSigma,
           // 字体参数 - 全局默认字体
           font: selectedFont,
           // 首行缩进
@@ -477,22 +580,34 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100">
+    <div className="min-h-screen bg-background">
       {/* 顶部导航 */}
-      <header className="bg-white border-b px-6 py-3">
+      <header className="bg-card border-b px-6 py-3 flex items-center justify-between">
         <h1 className="text-xl font-bold flex items-center gap-2">
           <PenLine className="w-6 h-6" />
-          <span className="bg-gradient-to-r from-slate-800 to-slate-600 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-primary to-primary/70 bg-clip-text text-transparent">
             迹墨 HandwriteCraft
           </span>
         </h1>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={toggleTheme}
+          className="h-9 w-9"
+        >
+          {theme === "light" ? (
+            <Moon className="h-5 w-5" />
+          ) : (
+            <Sun className="h-5 w-5" />
+          )}
+        </Button>
       </header>
 
       {/* 三栏布局 */}
       <div className="flex h-[calc(100vh-60px)]">
 
         {/* 左侧 - 上传PDF、框选区域、填写内容 */}
-        <div className="w-72 bg-white border-r flex flex-col">
+        <div className="w-[320px] bg-card border-r flex flex-col">
           {/* 可滚动的内容区域 */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* 上传区域 */}
@@ -511,11 +626,11 @@ export default function Home() {
                   />
                   <label htmlFor="file-upload" className="cursor-pointer">
                     {pdfLoading ? (
-                      <Loader2 className="w-8 h-8 mx-auto mb-2 text-slate-400 animate-spin" />
+                      <Loader2 className="w-8 h-8 mx-auto mb-2 text-muted-foreground/70 animate-spin" />
                     ) : (
-                      <FileText className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                      <FileText className="w-8 h-8 mx-auto mb-2 text-muted-foreground/70" />
                     )}
-                    <span className="text-sm text-slate-500">
+                    <span className="text-sm text-muted-foreground">
                       {pdfFile ? pdfFile.name : "点击上传PDF或图片"}
                     </span>
                   </label>
@@ -530,12 +645,12 @@ export default function Home() {
                   <CardTitle className="text-base">框选区域</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-xs text-slate-600 mb-2">
+                  <p className="text-xs text-muted-foreground/80 mb-2">
                     <span className="font-medium">左键拖动</span>：框选区域<br />
                     {previewUrl && <><span className="font-medium">右键拖动</span>：移动预览</>}
                   </p>
                   {regions.length > 0 && (
-                    <p className="text-[10px] text-slate-400">已框选 {regions.length} 个区域</p>
+                    <p className="text-[10px] text-muted-foreground/70">已框选 {regions.length} 个区域</p>
                   )}
                 </CardContent>
               </Card>
@@ -554,7 +669,7 @@ export default function Home() {
                       <div className="flex justify-between items-center mb-2">
                         <button
                           onClick={() => updateRegionSize(region.id, { expanded: !region.expanded })}
-                          className="flex items-center gap-1 text-xs font-medium hover:text-slate-600"
+                          className="flex items-center gap-1 text-xs font-medium hover:text-muted-foreground/80"
                         >
                           <span>区域 {index + 1}</span>
                           <svg
@@ -584,23 +699,27 @@ export default function Home() {
                         <div className="mt-3 pt-3 border-t space-y-3">
                           {/* 字体选择 */}
                           <div>
-                            <Label className="text-[10px] text-slate-500 mb-1 block">字体</Label>
-                            <select
+                            <Label className="text-[10px] text-muted-foreground mb-1 block">字体</Label>
+                            <Select
                               value={region.font ?? selectedFont}
-                              onChange={(e) => updateRegionSize(region.id, { font: e.target.value })}
-                              className="w-full h-7 text-xs rounded-md border border-slate-200 bg-white px-2 py-1"
+                              onValueChange={(value) => updateRegionSize(region.id, { font: value })}
                             >
-                              {fonts.map((font) => (
-                                <option key={font.file} value={font.file}>
-                                  {font.name}
-                                </option>
-                              ))}
-                            </select>
+                              <SelectTrigger className="w-full h-7 text-xs">
+                                <SelectValue placeholder="选择字体" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {fonts.map((font) => (
+                                  <SelectItem key={font.file} value={font.file} className="text-xs">
+                                    {font.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
 
                           {/* 字体大小 */}
                           <div>
-                            <Label className="text-[10px] text-slate-500 mb-1 block">字体大小 (px)</Label>
+                            <Label className="text-[10px] text-muted-foreground mb-1 block">字体大小 (px)</Label>
                             <Input
                               type="number"
                               value={region.fontSize ?? fontSize}
@@ -613,10 +732,10 @@ export default function Home() {
 
                           {/* 位置和尺寸输入 */}
                           <div>
-                            <Label className="text-[10px] text-slate-500 mb-1 block">位置和尺寸 (%)</Label>
+                            <Label className="text-[10px] text-muted-foreground mb-1 block">位置和尺寸 (%)</Label>
                             <div className="grid grid-cols-2 gap-2">
                               <div className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">X</span>
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/70 font-medium">X</span>
                                 <Input
                                   type="number"
                                   value={Math.round(region.x * 10) / 10}
@@ -627,7 +746,7 @@ export default function Home() {
                                 />
                               </div>
                               <div className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">Y</span>
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/70 font-medium">Y</span>
                                 <Input
                                   type="number"
                                   value={Math.round((100 - region.y) * 10) / 10}
@@ -641,7 +760,7 @@ export default function Home() {
                                 />
                               </div>
                               <div className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">W</span>
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/70 font-medium">W</span>
                                 <Input
                                   type="number"
                                   value={Math.round(region.width * 10) / 10}
@@ -652,7 +771,7 @@ export default function Home() {
                                 />
                               </div>
                               <div className="relative">
-                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-medium">H</span>
+                                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/70 font-medium">H</span>
                                 <Input
                                   type="number"
                                   value={Math.round(region.height * 10) / 10}
@@ -674,7 +793,7 @@ export default function Home() {
           </div>
 
           {/* 固定在底部的生成按钮 */}
-          <div className="p-4 border-t bg-white">
+          <div className="p-4 border-t bg-card">
             <Button
               onClick={handleGenerate}
               disabled={generating || regions.length === 0 || !pdfImageUrl}
@@ -694,7 +813,7 @@ export default function Home() {
         </div>
 
         {/* 中间 - PDF预览/框选/结果 */}
-        <div className="flex-1 bg-slate-200 p-4 overflow-auto flex flex-col items-center relative">
+        <div className="flex-1 bg-muted p-4 overflow-auto flex flex-col items-center relative">
           <div
             ref={containerRef}
             className={`relative bg-white shadow-lg select-none ${isSelecting ? 'cursor-crosshair' : (previewUrl ? 'cursor-default' : 'cursor-crosshair')}`}
@@ -757,34 +876,36 @@ export default function Home() {
                 }}
               >
                 {/* 缩放控制条 - 放在右上角避免和左上角框选按钮冲突 */}
-                <div className="absolute top-2 right-2 z-20 bg-white rounded-lg shadow-lg p-1 flex items-center gap-1">
-                  <button
+                <div className="absolute top-2 right-2 z-20 bg-background rounded-lg shadow-lg p-1 flex items-center gap-1 border">
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={handleZoomOut}
-                    className="p-1 hover:bg-slate-100 rounded"
+                    className="h-7 w-7"
                     title="缩小"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
-                    </svg>
-                  </button>
+                    <Minus className="w-4 h-4" />
+                  </Button>
                   <span className="text-xs font-medium min-w-[50px] text-center">{zoom}%</span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={handleZoomIn}
-                    className="p-1 hover:bg-slate-100 rounded"
+                    className="h-7 w-7"
                     title="放大"
                   >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                    </svg>
-                  </button>
-                  <div className="w-px h-4 bg-slate-200 mx-1" />
-                  <button
+                    <Plus className="w-4 h-4" />
+                  </Button>
+                  <div className="w-px h-4 bg-border mx-1" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={handleZoomReset}
-                    className="px-2 py-1 text-xs hover:bg-slate-100 rounded"
+                    className="h-7 text-xs px-2"
                     title="恢复100%"
                   >
                     100%
-                  </button>
+                  </Button>
                 </div>
                 {/* 可缩放的图片容器 */}
                 <div
@@ -867,11 +988,11 @@ export default function Home() {
             ) : pdfLoading ? (
               /* PDF加载中 */
               <div className="w-full h-96 flex items-center justify-center">
-                <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
+                <Loader2 className="w-8 h-8 animate-spin text-muted-foreground/70" />
               </div>
             ) : (
               /* 空状态 */
-              <div className="w-full h-96 flex items-center justify-center text-slate-400">
+              <div className="w-full h-96 flex items-center justify-center text-muted-foreground/70">
                 <div className="text-center">
                   <Upload className="w-12 h-12 mx-auto mb-2" />
                   <p className="text-sm">上传文件后<br />在此处框选填写区域</p>
@@ -882,7 +1003,7 @@ export default function Home() {
 
           {/* 翻页控件 - 放在右下角 */}
           {pdfImageUrl && totalPages > 1 && (
-            <div className="absolute bottom-4 right-4 z-30 bg-white rounded-lg shadow p-2 flex items-center gap-2">
+            <div className="absolute bottom-4 right-4 z-30 bg-card border rounded-lg shadow p-2 flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
@@ -907,7 +1028,7 @@ export default function Home() {
         </div>
 
         {/* 右侧 - 参数面板 */}
-        <div className="w-72 bg-white border-l flex flex-col">
+        <div className="w-[320px] bg-card border-l flex flex-col">
           {/* 可滚动的内容区域 */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {/* 字体选择 */}
@@ -917,25 +1038,25 @@ export default function Home() {
               </CardHeader>
               <CardContent>
                 <div>
-                  <Label className="text-[10px] text-slate-500 mb-1 block">选择字体</Label>
-                  <select
+                  <Label className="text-[10px] text-muted-foreground mb-1 block">选择字体</Label>
+                  <Select
                     value={selectedFont}
-                    onChange={(e) => setSelectedFont(e.target.value)}
-                    className="w-full h-8 text-xs rounded-md border border-slate-200 bg-white px-2 py-1"
+                    onValueChange={setSelectedFont}
                     disabled={fontsLoading}
                   >
-                    {fontsLoading ? (
-                      <option>加载中...</option>
-                    ) : (
-                      fonts.map((font) => (
-                        <option key={font.file} value={font.file}>
+                    <SelectTrigger className="w-full h-8 text-xs">
+                      <SelectValue placeholder={fontsLoading ? "加载中..." : "选择字体"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {fonts.map((font) => (
+                        <SelectItem key={font.file} value={font.file} className="text-xs">
                           {font.name}
-                        </option>
-                      ))
-                    )}
-                  </select>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-                <p className="text-[10px] text-slate-400 mt-2">
+                <p className="text-[10px] text-muted-foreground/70 mt-2">
                   提示：将 .ttf/.otf 字体文件放入 fonts 文件夹即可使用
                 </p>
               </CardContent>
@@ -947,36 +1068,23 @@ export default function Home() {
                 <CardTitle className="text-base">手写风格</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    onClick={() => applyHandStyle("formal")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "formal"
-                      ? "bg-slate-800 text-white border-slate-800"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                      }`}
-                  >
+                <ToggleGroup
+                  type="single"
+                  value={handStyle}
+                  onValueChange={(value) => value && applyHandStyle(value as "formal" | "natural" | "casual")}
+                  className="grid grid-cols-3 gap-2"
+                >
+                  <ToggleGroupItem value="formal" className="text-xs px-2 py-1.5 h-auto">
                     工整正式
-                  </button>
-                  <button
-                    onClick={() => applyHandStyle("natural")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "natural"
-                      ? "bg-slate-800 text-white border-slate-800"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                      }`}
-                  >
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="natural" className="text-xs px-2 py-1.5 h-auto">
                     自然手写
-                  </button>
-                  <button
-                    onClick={() => applyHandStyle("casual")}
-                    className={`px-2 py-1.5 text-xs rounded border transition-colors ${handStyle === "casual"
-                      ? "bg-slate-800 text-white border-slate-800"
-                      : "bg-white text-slate-600 border-slate-200 hover:border-slate-400"
-                      }`}
-                  >
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="casual" className="text-xs px-2 py-1.5 h-auto">
                     潦草随性
-                  </button>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-2">
+                  </ToggleGroupItem>
+                </ToggleGroup>
+                <p className="text-[10px] text-muted-foreground/70 mt-2">
                   {handStyle === "formal" && "适合申请书、报告等正式文档"}
                   {handStyle === "natural" && "适合日记、笔记等日常书写（推荐）"}
                   {handStyle === "casual" && "适合草稿、速记等非正式场景"}
@@ -1005,7 +1113,7 @@ export default function Home() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-[10px] text-slate-500">字体大小</Label>
+                    <Label className="text-[10px] text-muted-foreground">字体大小</Label>
                     <Input
                       type="number"
                       value={fontSize}
@@ -1016,7 +1124,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <Label className="text-[10px] text-slate-500">字间距</Label>
+                    <Label className="text-[10px] text-muted-foreground">字间距</Label>
                     <Input
                       type="number"
                       value={wordSpacing}
@@ -1028,7 +1136,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                     <Label>行距</Label>
                     <span>{lineSpacing}</span>
                   </div>
@@ -1052,7 +1160,7 @@ export default function Home() {
               <CardContent className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <Label className="text-[10px] text-slate-500">宽度</Label>
+                    <Label className="text-[10px] text-muted-foreground">宽度</Label>
                     <Input
                       type="number"
                       value={width}
@@ -1062,7 +1170,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <Label className="text-[10px] text-slate-500">高度</Label>
+                    <Label className="text-[10px] text-muted-foreground">高度</Label>
                     <Input
                       type="number"
                       value={height}
@@ -1073,7 +1181,7 @@ export default function Home() {
                   </div>
                 </div>
                 <div>
-                  <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                  <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                     <Label>清晰度</Label>
                     <span>{quality}x</span>
                   </div>
@@ -1103,7 +1211,7 @@ export default function Home() {
                     className="w-7 h-7 rounded cursor-pointer"
                   />
                   <div className="flex-1">
-                    <Label className="text-[10px] text-slate-500">墨水颜色</Label>
+                    <Label className="text-[10px] text-muted-foreground">墨水颜色</Label>
                     <Input
                       value={inkColor}
                       onChange={(e) => setInkColor(e.target.value)}
@@ -1122,7 +1230,7 @@ export default function Home() {
               <CardContent className="space-y-2">
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                       <Label>字体波动</Label>
                       <span>{fontSizeSigma}</span>
                     </div>
@@ -1136,7 +1244,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                       <Label>行距波动</Label>
                       <span>{lineSpacingSigma}</span>
                     </div>
@@ -1152,7 +1260,7 @@ export default function Home() {
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                       <Label>字间距波动</Label>
                       <span>{wordSpacingSigma}</span>
                     </div>
@@ -1166,7 +1274,7 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                    <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
                       <Label>倾斜度</Label>
                       <span>{perturbThetaSigma}</span>
                     </div>
@@ -1195,7 +1303,7 @@ export default function Home() {
                   placeholder="文件名"
                   className="h-8 text-sm flex-1"
                 />
-                <span className="text-sm text-slate-500">.{exportFormat}</span>
+                <span className="text-sm text-muted-foreground">.{exportFormat}</span>
               </div>
               {/* 导出格式选择 */}
               <div className="flex gap-2 w-full">
@@ -1225,6 +1333,46 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* 生成中蒙版 Dialog */}
+      <Dialog open={showGeneratingModal} modal>
+        <DialogContent className="sm:max-w-[400px]" onPointerDownOutside={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              正在生成手写图片
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            {/* 当前步骤 */}
+            <div className="text-center text-sm text-muted-foreground/80">
+              {currentStep}
+            </div>
+            
+            {/* 进度条 */}
+            <div className="space-y-2">
+              <Progress value={progress} className="h-2" />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{Math.round(progress)}%</span>
+                <span>预计剩余 {remainingTime} 秒</span>
+              </div>
+            </div>
+            
+            {/* 倒计时显示 */}
+            <div className="flex items-center justify-center gap-2 text-muted-foreground">
+              <Clock className="h-4 w-4" />
+              <span className="text-sm">
+                总预计时间: {estimatedTime} 秒
+              </span>
+            </div>
+            
+            {/* 参数提示 */}
+            <div className="text-xs text-muted-foreground/70 text-center">
+              质量设置: {quality}x | 字符数: {regions.reduce((sum, r) => sum + (r.text?.length || 0), 0)}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
